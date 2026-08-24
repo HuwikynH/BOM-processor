@@ -11,6 +11,13 @@ import json
 import os
 import openpyxl
 
+# --- HOTFIX FOR ERP EXPORTS ---
+# Many ERP systems (like HPCC DB) generate malformed styles.xml that crash openpyxl.
+# Since we only care about data, we bypass the entire stylesheet parsing.
+import openpyxl.reader.excel
+openpyxl.reader.excel.apply_stylesheet = lambda archive, wb: None
+# ------------------------------
+
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 with open(os.path.join(_BASE_DIR, "component_dictionary.json"), encoding="utf-8") as f:
