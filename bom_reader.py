@@ -63,7 +63,7 @@ def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None]:
       partnumber   : str or None
       row_number   : int (1-based excel row)
     """
-    wb = openpyxl.load_workbook(filepath, data_only=True)
+    wb = openpyxl.load_workbook(filepath, data_only=True, read_only=True)
 
     best_sheet = None
     best_col_map: dict[str, int] = {}
@@ -72,11 +72,11 @@ def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None]:
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
-        if ws.max_row < 2:
+        if ws.max_row is not None and ws.max_row < 2:
             continue
         
         # Scan the first 30 rows to dynamically find the header row
-        for row_idx, row_cells in enumerate(ws.iter_rows(min_row=1, max_row=min(30, ws.max_row)), start=1):
+        for row_idx, row_cells in enumerate(ws.iter_rows(min_row=1, max_row=30), start=1):
             row_values = [cell.value for cell in row_cells]
             col_map = detect_columns(row_values)
             score = len(col_map)

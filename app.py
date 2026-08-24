@@ -83,7 +83,7 @@ class BOMApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("BOM Processor  v1.0")
+        self.title("BOM Processor  v1.1")
         self.geometry("1100x680")
         self.minsize(900, 540)
         self.configure(fg_color=CLR_BG)
