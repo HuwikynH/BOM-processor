@@ -4,21 +4,24 @@ attrition_editor.py
 Popup window to VIEW and EDIT attrition rates.
 
 Layout:
-  ┌─────────────────────────────────────┐
-  │  ⚙ Attrition Rules Editor          │
-  │  [SMT] [Cable / Box]               │
-  │  ┌──────────────┬────────┬───────┐  │
-  │  │ Component    │ Package│  Att% │  │
-  │  ├──────────────┼────────┼───────┤  │
-  │  │ Resistor     │ 0201   │  10%  │  │
-  │  │ Resistor     │ 0402   │  10%  │  │
-  │  │ …            │ …      │  …    │  │
-  │  └──────────────┴────────┴───────┘  │
-  │  Double-click Att% cell to edit.    │
-  │  [Reset]                   [Save]   │
-  └─────────────────────────────────────┘
+   ┌───────────────────────────────────────────────┐
+   │  ⚙ Attrition Rules Editor                     │
+   │  Version: [ dropdown ▼ ]        (hint)        │
+   │  [SMT / PCBA] [Cable / Box]                   │
+   │  ┌──────────────┬────────┬───────┐  Filter:  │
+   │  │ Component    │ Package│  Att% │  [____]   │
+   │  └──────────────┴────────┴───────┘           │
+   │  Double-click Att% cell to edit.              │
+   │  (component description shown at bottom)      │
+   │  [💾 Save as new version]                     │
+   └───────────────────────────────────────────────┘
+
+Saving ALWAYS creates a new version file (attrition_rules_v*.json).
+The original attrition_rules.json is never modified.
+The dropdown switches the active version used by the engine.
 """
 
+import glob
 import json
 import os
 import tkinter as tk
@@ -26,7 +29,10 @@ from tkinter import ttk, messagebox
 import customtkinter as ctk
 
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-_RULES_PATH = os.path.join(_BASE_DIR, "attrition_rules.json")
+_RULES_BASE_NAME = "attrition_rules.json"
+_RULES_BASE_PATH = os.path.join(_BASE_DIR, _RULES_BASE_NAME)
+_ACTIVE_PTR_PATH = os.path.join(_BASE_DIR, "_active_rules.json")
+_VERSION_GLOB = os.path.join(_BASE_DIR, "attrition_rules_v*.json")
 
 # ── Colours (match main app) ──────────────────────────────────────────────────
 CLR_BG        = "#ffffff"
@@ -42,14 +48,66 @@ CLR_ROW_ODD   = "#ffffff"
 CLR_EDIT_HL   = "#d97706"   # orange highlight for edited cells
 
 
-def _load_rules() -> dict:
-    with open(_RULES_PATH, encoding="utf-8") as f:
+# ── Rule-file management ──────────────────────────────────────────────────────
+def _version_display_name(filename: str) -> str:
+    """'attrition_rules.json' → 'Original (default)'
+    'attrition_rules_v2026-08-25_141530.json' → 'v2026-08-25 14:15:30'"""
+    if filename == _RULES_BASE_NAME:
+        return "Original (default)"
+    stem = os.path.splitext(filename)[0]
+    v = stem.replace("attrition_rules_v", "", 1)
+    try:
+        date, time = v.split("_", 1)
+        return f"v{date} {time[:2]}:{time[2:4]}:{time[4:6]}"
+    except ValueError:
+        return f"v{v}"
+
+
+def _list_rule_files() -> list[str]:
+    """All rule files: original first, then versions oldest → newest."""
+    versions = sorted(
+        os.path.basename(p) for p in glob.glob(_VERSION_GLOB)
+    )
+    return [_RULES_BASE_NAME] + versions
+
+
+def _get_active_rules_name() -> str:
+    try:
+        with open(_ACTIVE_PTR_PATH, encoding="utf-8") as f:
+            name = json.load(f).get("active_file")
+        if name and os.path.exists(os.path.join(_BASE_DIR, name)):
+            return name
+    except Exception:
+        pass
+    return _RULES_BASE_NAME
+
+
+def _set_active_rules_name(filename: str):
+    with open(_ACTIVE_PTR_PATH, "w", encoding="utf-8") as f:
+        json.dump({"active_file": filename}, f, indent=2)
+
+
+def _load_rules(filename: str | None = None) -> dict:
+    name = filename or _get_active_rules_name()
+    with open(os.path.join(_BASE_DIR, name), encoding="utf-8") as f:
         return json.load(f)
 
 
-def _save_rules(rules: dict):
-    with open(_RULES_PATH, "w", encoding="utf-8") as f:
-        json.dump(rules, f, indent=2, ensure_ascii=False)
+def _save_rules_as_version(rules: dict) -> str:
+    """Write rules to a NEW version file, make it active. Returns filename."""
+    import datetime
+    stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    fname = f"attrition_rules_v{stamp}.json"
+    payload = dict(rules)
+    meta = dict(payload.get("_meta", {}))
+    meta["saved_from"] = "Attrition Rules Editor"
+    meta["saved_at"] = stamp.replace("_", " ")
+    meta["base_version"] = _get_active_rules_name()
+    payload["_meta"] = meta
+    with open(os.path.join(_BASE_DIR, fname), "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+    _set_active_rules_name(fname)
+    return fname
 
 
 def _flatten_smt(smt_rules: dict) -> list[tuple]:
@@ -95,14 +153,21 @@ def _flatten_cable(cable_rules: dict) -> list[tuple]:
     return rows
 
 
+def _component_comment(rules: dict, section: str, comp: str) -> str:
+    entry = rules.get(section, {}).get(comp, {})
+    if isinstance(entry, dict):
+        return str(entry.get("_comment", "") or "")
+    return ""
+
+
 # ── Editor window ─────────────────────────────────────────────────────────────
 
 class AttritionEditorWindow(ctk.CTkToplevel):
     def __init__(self, parent, on_save_callback=None):
         super().__init__(parent)
         self.title("⚙  Attrition Rules Editor")
-        self.geometry("660x540")
-        self.minsize(560, 400)
+        self.geometry("760x600")
+        self.minsize(640, 460)
         self.configure(fg_color=CLR_BG)
         self.grab_set()   # modal
 
@@ -110,6 +175,8 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         self._rules: dict = _load_rules()
         self._dirty: bool = False          # unsaved changes flag
         self._edit_entry: tk.Entry | None = None  # floating entry widget
+        self._all_rows: list[tuple] = []   # unfiltered rows of current tab
+        self._key_paths: dict = {}
 
         self._build_ui()
         self._populate_current_tab()
@@ -117,16 +184,46 @@ class AttritionEditorWindow(ctk.CTkToplevel):
     # ── Build UI ──────────────────────────────────────────────────────────────
     def _build_ui(self):
         # Title bar
-        hdr = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=64)
+        hdr = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=56)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         ctk.CTkLabel(hdr, text="⚙  Attrition Rules Editor",
                      font=ctk.CTkFont(size=20, weight="bold"),
-                     text_color=CLR_ACCENT).pack(side="left", padx=16, pady=10)
-        self.lbl_hint = ctk.CTkLabel(
-            hdr, text="Double-click  Att %  to edit",
-            font=ctk.CTkFont(size=12, slant="italic"), text_color=CLR_MUTED)
-        self.lbl_hint.pack(side="right", padx=16)
+                     text_color=CLR_ACCENT).pack(side="left", padx=16, pady=8)
+        ctk.CTkLabel(hdr,
+                     text="Double-click a value in  Attrition %  to edit",
+                     font=ctk.CTkFont(size=12, slant="italic"),
+                     text_color=CLR_MUTED).pack(side="right", padx=16)
+
+        # Version selector row
+        ver = ctk.CTkFrame(self, fg_color=CLR_BG, corner_radius=0, height=44)
+        ver.pack(fill="x")
+        ver.pack_propagate(False)
+        ctk.CTkLabel(ver, text="Rules version:",
+                     font=ctk.CTkFont(size=13, weight="bold"),
+                     text_color=CLR_TEXT).pack(side="left", padx=(16, 8))
+        self._version_files = _list_rule_files()
+        self._version_menu = ctk.CTkOptionMenu(
+            ver, width=240, height=28,
+            values=[_version_display_name(f) for f in self._version_files],
+            fg_color=CLR_SURFACE, text_color=CLR_TEXT,
+            button_color=CLR_HEADER_BG, button_hover_color="#d4d4d8",
+            command=self._on_version_selected,
+        )
+        self._version_menu.set(_version_display_name(_get_active_rules_name()))
+        self._version_menu.pack(side="left", pady=8)
+        self._btn_delete_ver = ctk.CTkButton(
+            ver, text="🗑  Delete", width=90, height=28,
+            fg_color=CLR_SURFACE, hover_color="#fecaca",
+            text_color=CLR_WARN, border_width=1, border_color=CLR_WARN,
+            state="disabled", command=self._on_delete_version,
+        )
+        self._btn_delete_ver.pack(side="left", padx=(8, 0), pady=8)
+        self._update_delete_btn_state()
+        ctk.CTkLabel(ver,
+                     text="Save always creates a new version — the original file is never overwritten",
+                     font=ctk.CTkFont(size=11, slant="italic"),
+                     text_color=CLR_MUTED).pack(side="left", padx=12)
 
         # Tab bar
         tab_bar = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=48)
@@ -139,11 +236,25 @@ class AttritionEditorWindow(ctk.CTkToplevel):
             btn = ctk.CTkButton(
                 tab_bar, text=label, height=32, corner_radius=0,
                 fg_color=CLR_ACCENT if key == "smt" else CLR_SURFACE,
-                hover_color="#15803d",
+                hover_color="#15803d" if key == "smt" else "#e4e4e7",
+                text_color="#ffffff" if key == "smt" else CLR_TEXT,
                 command=lambda k=key: self._switch_tab(k),
             )
             btn.pack(side="left", padx=2, pady=3)
             setattr(self, f"_tab_btn_{key}", btn)
+
+        # Search row
+        search_row = ctk.CTkFrame(self, fg_color=CLR_BG, corner_radius=0, height=40)
+        search_row.pack(fill="x")
+        search_row.pack_propagate(False)
+        ctk.CTkLabel(search_row, text="🔍 Filter:",
+                     font=ctk.CTkFont(size=12),
+                     text_color=CLR_MUTED).pack(side="right", padx=(8, 4))
+        self._search_var = tk.StringVar()
+        self._search_var.trace_add("write", lambda *_: self._populate_current_tab())
+        ctk.CTkEntry(search_row, width=200, height=26,
+                     textvariable=self._search_var,
+                     placeholder_text="component or package…").pack(side="right", pady=6)
 
         # Table frame
         self._table_frame = ctk.CTkFrame(self, fg_color=CLR_BG, corner_radius=0)
@@ -151,21 +262,24 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         self._build_tree()
 
         # Bottom bar
-        btm = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=56)
+        btm = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=64)
         btm.pack(fill="x", side="bottom")
         btm.pack_propagate(False)
 
-        self.lbl_status = ctk.CTkLabel(btm, text="", font=ctk.CTkFont(size=13),
-                                       text_color=CLR_MUTED, anchor="w")
-        self.lbl_status.pack(side="left", padx=14, pady=8)
+        self.lbl_desc = ctk.CTkLabel(btm, text="", justify="left", anchor="w",
+                                     font=ctk.CTkFont(size=12, slant="italic"),
+                                     text_color=CLR_MUTED, wraplength=440)
+        self.lbl_desc.pack(side="left", padx=14, pady=6)
 
-        ctk.CTkButton(btm, text="💾  Save Changes", width=148, height=36,
+        self._btn_save = ctk.CTkButton(btm, text="💾  Save as New Version", width=190, height=36,
                       fg_color=CLR_ACCENT, hover_color="#15803d", text_color="#ffffff",
-                      command=self._on_save).pack(side="right", padx=14, pady=8)
-        ctk.CTkButton(btm, text="↺  Reset", width=90, height=36,
-                      fg_color=CLR_SURFACE, hover_color="#d4d4d8", text_color="#18181b",
-                      border_width=1, border_color=CLR_MUTED,
-                      command=self._on_reset).pack(side="right", padx=4, pady=8)
+                      state="disabled",
+                      command=self._on_save)
+        self._btn_save.pack(side="right", padx=14, pady=8)
+
+        self.lbl_status = ctk.CTkLabel(btm, text="", font=ctk.CTkFont(size=12),
+                                       text_color=CLR_MUTED, anchor="e", wraplength=180)
+        self.lbl_status.pack(side="right", padx=4, pady=6)
 
     def _build_tree(self):
         """Create / recreate the Treeview."""
@@ -195,59 +309,101 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         self.tree.heading("package",    text="Package / Size",  anchor="center")
         self.tree.heading("attrition",  text="Attrition %",     anchor="center")
 
-        self.tree.column("component",  width=240, minwidth=160, stretch=True,  anchor="w")
-        self.tree.column("package",    width=150, minwidth=100, stretch=False, anchor="center")
-        self.tree.column("attrition",  width=130, minwidth=90,  stretch=False, anchor="center")
+        self.tree.column("component",  width=280, minwidth=160, stretch=True,  anchor="w")
+        self.tree.column("package",    width=160, minwidth=100, stretch=False, anchor="center")
+        self.tree.column("attrition",  width=140, minwidth=90,  stretch=False, anchor="center")
 
         # Tag colours
         self.tree.tag_configure("edited",   foreground=CLR_EDIT_HL, font=("Segoe UI", 13, "bold"))
         self.tree.tag_configure("row_odd",  background=CLR_ROW_ODD)
         self.tree.tag_configure("zero",     foreground=CLR_MUTED)
+        self.tree.tag_configure("group_start", background="#eef2ff")
 
         vsb = ttk.Scrollbar(self._table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=vsb.set)
         vsb.pack(side="right", fill="y")
         self.tree.pack(fill="both", expand=True)
 
-        # Bind double-click for editing
+        # Bind double-click for editing + selection for description
         self.tree.bind("<Double-1>", self._on_double_click)
         self.tree.bind("<Button-1>", self._cancel_edit)
+        self.tree.bind("<<TreeviewSelect>>", self._on_row_selected)
 
-    # ── Tab switching ─────────────────────────────────────────────────────────
+    # ── Tab switching / population ────────────────────────────────────────────
     def _switch_tab(self, tab: str):
         self._cancel_edit()
         self._active_tab.set(tab)
-        self._tab_btn_smt.configure(fg_color=CLR_ACCENT if tab == "smt" else CLR_SURFACE)
-        self._tab_btn_cable.configure(fg_color=CLR_ACCENT if tab == "cable" else CLR_SURFACE)
+        self._tab_btn_smt.configure(
+            fg_color=CLR_ACCENT if tab == "smt" else CLR_SURFACE,
+            text_color="#ffffff" if tab == "smt" else CLR_TEXT)
+        self._tab_btn_cable.configure(
+            fg_color=CLR_ACCENT if tab == "cable" else CLR_SURFACE,
+            text_color="#ffffff" if tab == "cable" else CLR_TEXT)
         self._populate_current_tab()
 
-    def _populate_current_tab(self):
-        """Fill tree with rows for current tab."""
-        self.tree.delete(*self.tree.get_children())
+    def _current_rows(self) -> list[tuple]:
         tab = self._active_tab.get()
         if tab == "smt":
-            rows = _flatten_smt(self._rules["smt_rules"])
-        else:
-            rows = _flatten_cable(self._rules["cable_box_rules"])
+            return _flatten_smt(self._rules["smt_rules"])
+        return _flatten_cable(self._rules["cable_box_rules"])
 
-        for idx, (comp, pkg, rate, key_path) in enumerate(rows):
+    def _populate_current_tab(self):
+        """Fill tree with rows for current tab (respecting search filter)."""
+        if not hasattr(self, "tree"):
+            return
+        self._cancel_edit()
+        self._all_rows = self._current_rows()
+
+        query = ""
+        if hasattr(self, "_search_var"):
+            query = self._search_var.get().strip().lower()
+
+        self.tree.delete(*self.tree.get_children())
+        self._key_paths = {}
+        prev_comp = None
+        iid = 0
+        shown = 0
+        for comp, pkg, rate, key_path in self._all_rows:
+            if query and query not in comp.lower() and query not in pkg.lower():
+                continue
             pct_str = f"{rate*100:.1f}%"
             tags = []
-            if idx % 2 != 0:
+            if comp != prev_comp:            # first row of each component group
+                tags.append("group_start")
+            prev_comp = comp
+            if iid % 2 != 0:
                 tags.append("row_odd")
             if rate == 0.0:
                 tags.append("zero")
+            row_iid = str(iid)
             self.tree.insert(
-                "", "end",
-                iid=str(idx),
+                "", "end", iid=row_iid,
                 values=(comp, pkg, pct_str),
                 tags=tuple(tags),
             )
-            # Store key_path on the item (as hidden data via iid→key_path map)
-        self._key_paths = {
-            str(idx): data[3]
-            for idx, data in enumerate(rows)
-        }
+            self._key_paths[row_iid] = key_path
+            iid += 1
+            shown += 1
+
+        if hasattr(self, "lbl_status") and not self._dirty:
+            total = len(self._all_rows)
+            extra = f" (filter: {shown}/{total})" if query else ""
+            self.lbl_status.configure(
+                text=f"  {total} rules{extra}", text_color=CLR_MUTED)
+
+    def _on_row_selected(self, event=None):
+        sel = self.tree.selection()
+        if not sel:
+            return
+        vals = self.tree.item(sel[0], "values")
+        if not vals:
+            return
+        section = "smt_rules" if self._active_tab.get() == "smt" else "cable_box_rules"
+        comment = _component_comment(self._rules, section, str(vals[0]))
+        if comment:
+            self.lbl_desc.configure(text=f"{vals[0]}: {comment}")
+        else:
+            self.lbl_desc.configure(text=str(vals[0]))
 
     # ── Inline editing ────────────────────────────────────────────────────────
     def _on_double_click(self, event: tk.Event):
@@ -342,9 +498,9 @@ class AttritionEditorWindow(ctk.CTkToplevel):
             existing_tags.remove("zero")
         self.tree.item(row_id, tags=tuple(existing_tags))
 
-        self._dirty = True
+        self._set_dirty(True)
         self.lbl_status.configure(
-            text=f"  Unsaved changes  –  click Save to apply.",
+            text="  Unsaved — Save as\n  New Version to apply.",
             text_color=CLR_EDIT_HL,
         )
         self._destroy_entry()
@@ -363,14 +519,30 @@ class AttritionEditorWindow(ctk.CTkToplevel):
             self._edit_entry.configure(highlightcolor=CLR_WARN,
                                        highlightbackground=CLR_WARN)
 
-    # ── Save / Reset ─────────────────────────────────────────────────────────
+    def _set_dirty(self, dirty: bool):
+        """Toggle unsaved-changes state and the Save button availability."""
+        self._dirty = dirty
+        self._btn_save.configure(state="normal" if dirty else "disabled")
+
+    def _update_delete_btn_state(self):
+        """Delete button only active when a saved version (not Original) is selected."""
+        current = self._version_menu.get()
+        can_delete = current != _version_display_name(_RULES_BASE_NAME)
+        self._btn_delete_ver.configure(state="normal" if can_delete else "disabled")
+
+    # ── Save / version switching ──────────────────────────────────────────────
     def _on_save(self):
         self._cancel_edit()
         try:
-            _save_rules(self._rules)
-            self._dirty = False
+            fname = _save_rules_as_version(self._rules)
+            self._set_dirty(False)
+            # Refresh dropdown and point at the new version
+            self._version_files = _list_rule_files()
+            self._version_menu.configure(
+                values=[_version_display_name(f) for f in self._version_files])
+            self._version_menu.set(_version_display_name(fname))
             self.lbl_status.configure(
-                text="  Saved successfully. Rules will apply on next Process.",
+                text=f"  Saved → {fname[:24]}…\n  Applied on next Process.",
                 text_color=CLR_GREEN,
             )
             # Reload engine in-place
@@ -381,19 +553,92 @@ class AttritionEditorWindow(ctk.CTkToplevel):
             self.lbl_status.configure(
                 text=f"  Save failed: {exc}", text_color=CLR_WARN)
 
-    def _on_reset(self):
-        self._cancel_edit()
+    def _on_version_selected(self, display_name: str):
+        """Switch the active rules version."""
+        # Map display name back to filename
+        fname = next(
+            (f for f in self._version_files
+             if _version_display_name(f) == display_name),
+            _RULES_BASE_NAME,
+        )
+        if fname == _get_active_rules_name():
+            self._update_delete_btn_state()
+            return
         if self._dirty:
             if not messagebox.askyesno(
-                "Reset",
-                "Discard all unsaved changes and reload from file?",
+                "Unsaved Changes",
+                "You have unsaved changes that will be discarded.\nSwitch version anyway?",
+                parent=self
+            ):
+                self._version_menu.set(_version_display_name(_get_active_rules_name()))
+                self._update_delete_btn_state()
+                return
+        try:
+            self._rules = _load_rules(fname)
+        except Exception as exc:
+            messagebox.showerror("Load Failed", str(exc), parent=self)
+            return
+        self._set_dirty(False)
+        _set_active_rules_name(fname)
+        _reload_engine()
+        self._populate_current_tab()
+        self._update_delete_btn_state()
+        self.lbl_status.configure(
+            text=f"  Switched to {_version_display_name(fname)}",
+            text_color=CLR_MUTED,
+        )
+        if self._on_save_callback:
+            self._on_save_callback()
+
+    def _on_delete_version(self):
+        """Delete the selected (non-original) version file."""
+        current = self._version_menu.get()
+        fname = next(
+            (f for f in self._version_files
+             if _version_display_name(f) == current),
+            None,
+        )
+        if fname is None or fname == _RULES_BASE_NAME:
+            return
+        if self._dirty:
+            if not messagebox.askyesno(
+                "Unsaved Changes",
+                "You have unsaved changes that will be discarded.\nContinue?",
                 parent=self
             ):
                 return
-        self._rules = _load_rules()
-        self._dirty = False
+        if not messagebox.askyesno(
+            "Delete Version",
+            f"Delete rule version '{_version_display_name(fname)}'?\n\n"
+            + ("The engine will fall back to the Original rules."
+               if fname == _get_active_rules_name()
+               else "Other versions are not affected."),
+            parent=self
+        ):
+            return
+        try:
+            os.remove(os.path.join(_BASE_DIR, fname))
+        except Exception as exc:
+            messagebox.showerror("Delete Failed", str(exc), parent=self)
+            return
+        # If the deleted version was active, fall back to the original
+        if _get_active_rules_name() == fname:
+            self._rules = _load_rules(_RULES_BASE_NAME)
+            _set_active_rules_name(_RULES_BASE_NAME)
+            _reload_engine()
+            if self._on_save_callback:
+                self._on_save_callback()
+        self._set_dirty(False)
+        self._version_files = _list_rule_files()
+        self._version_menu.configure(
+            values=[_version_display_name(f) for f in self._version_files])
+        self._version_menu.set(_version_display_name(_get_active_rules_name()))
+        self._update_delete_btn_state()
         self._populate_current_tab()
-        self.lbl_status.configure(text="  Rules reloaded from file.", text_color=CLR_MUTED)
+        self.lbl_status.configure(
+            text=f"  Deleted {_version_display_name(fname)}",
+            text_color=CLR_MUTED,
+        )
 
     # ── Close guard ───────────────────────────────────────────────────────────
     def destroy(self):

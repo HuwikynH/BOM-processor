@@ -19,7 +19,7 @@ import customtkinter as ctk
 import openpyxl
 
 from bom_reader import read_bom_file, get_available_sheets
-from attrition_engine import analyze_row
+from attrition_engine import analyze_row, apply_attrition
 from attrition_editor import AttritionEditorWindow
 
 # ── Theme ──────────────────────────────────────────────────────────────────────
@@ -83,7 +83,7 @@ class BOMApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("BOM Processor  v1.1")
+        self.title("BOM Processor  v1.2")
         self.geometry("1100x680")
         self.minsize(900, 540)
         self.configure(fg_color=CLR_BG)
@@ -160,6 +160,16 @@ class BOMApp(ctk.CTk):
         )
         self.btn_edit_rules.pack(side="right", padx=4, pady=10)
 
+        # Edit Keyword Dictionary button
+        self.btn_edit_dict = ctk.CTkButton(
+            top, text="📚  Edit Dictionary",
+            width=140, height=40,
+            corner_radius=8,
+            fg_color="#e4e4e7", hover_color="#d4d4d8", text_color="#18181b",
+            command=self._on_open_dict_editor,
+        )
+        self.btn_edit_dict.pack(side="right", padx=4, pady=10)
+
         # ── Filter / search bar ──
         bar = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=54)
         bar.pack(fill="x", side="top")
@@ -227,7 +237,7 @@ class BOMApp(ctk.CTk):
         style.map("BOM.Treeview.Heading",
                   background=[("active", "#d4d4d8")])
 
-        cols = ("no", "part_type", "description", "attrition")
+        cols = ("no", "part_type", "description", "mfr_pn", "int_pn", "qty", "attrition")
         self.tree = ttk.Treeview(
             table_frame,
             columns=cols,
@@ -240,11 +250,17 @@ class BOMApp(ctk.CTk):
         self.tree.heading("no",          text="#",              anchor="center", command=lambda: self._sort_by("no"))
         self.tree.heading("part_type",   text="Part Type",      anchor="w", command=lambda: self._sort_by("part_type"))
         self.tree.heading("description", text="Description (original)", anchor="w", command=lambda: self._sort_by("description"))
+        self.tree.heading("mfr_pn",      text="MFR P/N",        anchor="w",     command=lambda: self._sort_by("mfr_pn"))
+        self.tree.heading("int_pn",      text="Internal P/N",   anchor="w",     command=lambda: self._sort_by("int_pn"))
+        self.tree.heading("qty",          text="Qty",            anchor="e",     command=lambda: self._sort_by("qty"))
         self.tree.heading("attrition",   text="Attrition %",    anchor="center", command=lambda: self._sort_by("attrition"))
 
         self.tree.column("no",          width=46,  minwidth=40,  stretch=False, anchor="center")
         self.tree.column("part_type",   width=180, minwidth=120, stretch=False, anchor="w")
-        self.tree.column("description", width=620, minwidth=300, stretch=True,  anchor="w")
+        self.tree.column("description", width=420, minwidth=250, stretch=True,  anchor="w")
+        self.tree.column("mfr_pn",      width=140, minwidth=90,  stretch=False, anchor="w")
+        self.tree.column("int_pn",      width=140, minwidth=90,  stretch=False, anchor="w")
+        self.tree.column("qty",         width=80,  minwidth=70,  stretch=False, anchor="e")
         self.tree.column("attrition",   width=110, minwidth=90,  stretch=False, anchor="center")
 
         # Tag colours for attrition bands
@@ -268,25 +284,22 @@ class BOMApp(ctk.CTk):
         self.tree.pack(fill="both", expand=True)
         self.tree.bind("<Double-1>", self._on_tree_double_click)
 
+        # Copy support: Ctrl+C = whole row(s), right-click = single cell
+        self.tree.bind("<Control-c>", self._copy_selection)
+        self.tree.bind("<Control-C>", self._copy_selection)
+        self.tree.bind("<Button-3>", self._on_right_click)
+
         # ── Status bar ──
-        status = ctk.CTkFrame(self, fg_color=CLR_SURFACE, corner_radius=0, height=36)
+        status = ctk.CTkFrame(self, fg_color="#fef9c3", corner_radius=0, height=44)
         status.pack(fill="x", side="bottom")
         status.pack_propagate(False)
 
         self.lbl_status = ctk.CTkLabel(
             status, text="Ready. Open an xlsx file to begin.",
-            font=ctk.CTkFont(size=13), text_color=CLR_MUTED,
+            font=ctk.CTkFont(size=15, weight="bold"), text_color=CLR_TEXT,
             anchor="w",
         )
         self.lbl_status.pack(side="left", padx=14, pady=4)
-
-        self.lbl_legend = ctk.CTkLabel(
-            status,
-            text="  ● 10%  ● 5%  ● 3%  ● 2%  ● 1%  ● 0.5%  ● 0%  ● ?  ",
-            font=ctk.CTkFont(size=12),
-            text_color=CLR_MUTED,
-        )
-        self.lbl_legend.pack(side="right", padx=8)
 
     # ── Event handlers ─────────────────────────────────────────────────────────
     def _on_browse(self):
@@ -308,6 +321,27 @@ class BOMApp(ctk.CTk):
     def _on_open_editor(self):
         """Open the Attrition Rules editor window."""
         AttritionEditorWindow(self, on_save_callback=self._on_rules_saved)
+
+    def _on_open_dict_editor(self):
+        """Open the Keyword Dictionary editor window."""
+        from dictionary_editor import DictionaryEditorWindow
+        DictionaryEditorWindow(self, on_save_callback=self._on_dict_saved)
+
+    def _on_dict_saved(self):
+        """Called after dictionary editor saves/switches versions."""
+        import importlib
+        import bom_reader as _br
+        import attrition_engine as _eng
+        importlib.reload(_br)
+        importlib.reload(_eng)
+        # Patch module-level references in this file's scope
+        global read_bom_file, get_available_sheets, analyze_row
+        from bom_reader import read_bom_file, get_available_sheets  # noqa: F811
+        from attrition_engine import analyze_row  # noqa: F811
+        self.lbl_status.configure(
+            text="  Dictionary updated. Click ▶ Process to re-apply.",
+            text_color="#cba6f7",
+        )
 
     def _on_rules_saved(self):
         """Called after editor saves rules. If BOM already processed, re-run."""
@@ -359,6 +393,8 @@ class BOMApp(ctk.CTk):
                     "resolved_via":   analysis["resolved_via"],
                     "qty_bom":        r.get("quantity", 0),
                     "unit":           r.get("unit", "EA"),
+                    "mpn":            r.get("mpn"),
+                    "internal_pn":    r.get("internal_pn"),
                 })
 
             self._all_rows = results
@@ -414,9 +450,14 @@ class BOMApp(ctk.CTk):
             else:
                 pt_display = r["part_type_full"]
 
+            qty_val = float(r.get("qty_bom", 0) or 0)
+            qty_display = str(int(qty_val)) if qty_val == int(qty_val) else f"{qty_val:g}"
+
             self.tree.insert(
                 "", "end", iid=str(r["_id"]),
-                values=(idx, pt_display, r["description"], r["attrition_pct"]),
+                values=(idx, pt_display, r["description"],
+                        r.get("mpn") or "", r.get("internal_pn") or "",
+                        qty_display, r["attrition_pct"]),
                 tags=tags,
             )
             self._visible_rows.append(r)
@@ -467,6 +508,12 @@ class BOMApp(ctk.CTk):
             self._all_rows.sort(key=lambda r: r["part_type_full"], reverse=self._sort_reverse)
         elif col == "description":
             self._all_rows.sort(key=lambda r: r["description"] or "", reverse=self._sort_reverse)
+        elif col == "mfr_pn":
+            self._all_rows.sort(key=lambda r: r.get("mpn") or "", reverse=self._sort_reverse)
+        elif col == "int_pn":
+            self._all_rows.sort(key=lambda r: r.get("internal_pn") or "", reverse=self._sort_reverse)
+        elif col == "qty":
+            self._all_rows.sort(key=lambda r: float(r.get("qty_bom", 0) or 0), reverse=self._sort_reverse)
         elif col == "attrition":
             self._all_rows.sort(key=lambda r: r["attrition_rate"], reverse=self._sort_reverse)
             
@@ -487,7 +534,9 @@ class BOMApp(ctk.CTk):
         ws = wb.active
         ws.title = "BOM Export"
         
-        headers = ["Row", "Original Part Type", "Canonical Type", "Description", "BOM Qty", "Unit", "Attrition %", "Attrition Rate", "Final Qty"]
+        headers = ["Row", "Original Part Type", "Canonical Type", "Description",
+                   "MFR Part Number", "Internal Part Number",
+                   "BOM Qty", "Unit", "Attrition %", "Attrition Rate", "Final Qty"]
         ws.append(headers)
         
         for r in self._visible_rows:
@@ -498,16 +547,15 @@ class BOMApp(ctk.CTk):
                 
             qty = float(r.get("qty_bom", 0) or 0)
             rate = float(r.get("attrition_rate", 0))
-            final_qty = qty + (qty * rate)
-            if r.get("unit", "EA") == "EA":
-                import math
-                final_qty = math.ceil(final_qty)
-                
+            final_qty = apply_attrition(qty, rate, r.get("unit", "EA"))
+            
             ws.append([
                 r["_id"] + 1,
                 raw_pt,
                 can_pt,
                 r.get("description", ""),
+                r.get("mpn") or "",
+                r.get("internal_pn") or "",
                 qty,
                 r.get("unit", "EA"),
                 r.get("attrition_pct", "0.0%"),
@@ -517,6 +565,43 @@ class BOMApp(ctk.CTk):
             
         wb.save(path)
         self.lbl_status.configure(text=f"Exported successfully to {os.path.basename(path)}", text_color="#10b981")
+
+    def _copy_selection(self, event=None):
+        """Copy selected row(s) to clipboard, cells separated by tabs."""
+        items = self.tree.selection()
+        if not items:
+            return "break"
+        lines = ["\t".join(str(v) for v in self.tree.item(i, "values")) for i in items]
+        self.clipboard_clear()
+        self.clipboard_append("\n".join(lines))
+        self.lbl_status.configure(
+            text=f"Đã copy {len(items)} dòng vào clipboard (Ctrl+V để dán)",
+            text_color="#2563eb")
+        return "break"
+
+    def _on_right_click(self, event):
+        """Right-click a cell → copy that cell's value."""
+        row_id = self.tree.identify_row(event.y)
+        col = self.tree.identify_column(event.x)
+        if not row_id or not col:
+            return
+        idx = int(col[1:]) - 1
+        values = self.tree.item(row_id, "values")
+        if idx >= len(values):
+            return
+        menu = tk.Menu(self, tearoff=0)
+        cell_val = str(values[idx])
+        menu.add_command(
+            label=f"Copy: {cell_val[:40]}{'…' if len(cell_val) > 40 else ''}",
+            command=lambda: (
+                self.clipboard_clear(),
+                self.clipboard_append(cell_val),
+                self.lbl_status.configure(
+                    text=f"Đã copy vào clipboard: {cell_val[:60]}",
+                    text_color="#2563eb"),
+            ))
+        menu.tk_popup(event.x_root, event.y_root)
+        return "break"
 
     def _on_tree_double_click(self, event):
         region = self.tree.identify_region(event.x, event.y)
@@ -561,7 +646,9 @@ class BOMApp(ctk.CTk):
                 target_row["attrition_pct"] = "0.0%"
             else:
                 target_row["part_type_full"] = sel
-                rate = get_attrition_rate(can_type, "-", target_row.get("unit", "EA"))
+                rate = get_attrition_rate(can_type, "-",
+                                          target_row.get("unit", "EA"),
+                                          target_row.get("description"))
                 target_row["attrition_rate"] = rate
                 target_row["attrition_pct"] = f"{rate*100:.1f}%"
                 

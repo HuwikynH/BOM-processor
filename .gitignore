@@ -1,1 +1,5 @@
 __pycache__/
+
+# User-generated rule versions & active pointer
+attrition_rules_v*.json
+_active_rules.json

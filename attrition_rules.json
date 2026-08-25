@@ -6,25 +6,23 @@
     "last_updated": "2026-08-24",
     "note": "attrition_rate is a decimal fraction (0.10 = 10%). Qty_final = Qty * (1 + attrition_rate)"
   },
-
   "smt_rules": {
     "_comment": "Rules for PCBA / SMT components. Lookup: type → package_group → rate",
-
     "RESISTOR": {
       "_default": 0.05,
       "_comment": "Chip resistors. Package size extracted from Description.",
-      "0201": 0.10,
-      "0402": 0.10,
-      "0603": 0.10,
+      "0201": 0.1,
+      "0402": 0.1,
+      "0603": 0.1,
       "0805": 0.05,
       "1206": 0.05
     },
     "CAPACITOR": {
       "_default": 0.05,
       "_comment": "Chip capacitors. Same size brackets as resistors.",
-      "0201": 0.10,
-      "0402": 0.10,
-      "0603": 0.10,
+      "0201": 0.1,
+      "0402": 0.1,
+      "0603": 0.1,
       "0805": 0.05,
       "1206": 0.05
     },
@@ -45,7 +43,7 @@
       "TSSOP": 0.01,
       "QFP": 0.01,
       "QFN": 0.02,
-      "BGA_FPGA": 0.00
+      "BGA_FPGA": 0.0
     },
     "CRYSTAL": {
       "_default": 0.01,
@@ -88,7 +86,7 @@
       "_comment": "Screws, nuts, washers, standoffs on PCBA"
     },
     "SHEET_METAL": {
-      "_default": 0.00,
+      "_default": 0.0,
       "_comment": "Sheet metal, chassis, enclosures"
     },
     "TEST_POINT": {
@@ -96,14 +94,12 @@
       "_comment": "Test points"
     },
     "OTHER_SPECIAL": {
-      "_default": 0.00,
+      "_default": 0.0,
       "_comment": "Other special items, assemblies, PCBs"
     }
   },
-
   "cable_box_rules": {
     "_comment": "Rules for Cable / Box assembly components.",
-
     "WIRE": {
       "_default": 0.05,
       "_comment": "All wires and cables sold by length (IN, FT, M). 5% extra length."
@@ -133,22 +129,33 @@
       "_comment": "Screws, nuts, washers, standoffs in Cable/Box assembly"
     },
     "SHEET_METAL": {
-      "_default": 0.00,
+      "_default": 0.0,
       "_comment": "Sheet metal, mechanical parts"
     },
     "POWER_MONITOR": {
-      "_default": 0.00,
+      "_default": 0.0,
       "_comment": "Power supplies, monitors, circuit breakers"
     },
     "OTHER_SPECIAL": {
-      "_default": 0.00,
+      "_default": 0.0,
       "_comment": "Cable assemblies, special items"
     }
   },
-
   "assembly_context": {
     "_comment": "Determines which rule table (smt_rules or cable_box_rules) to use for ambiguous types like CONNECTOR or SCREW_NUT_WASHER. Based on Use-As Unit.",
-    "length_units": ["IN", "FT", "M", "MM", "CM", "MTR", "INCH", "INCHES", "FEET", "FOOT", "METER"],
+    "length_units": [
+      "IN",
+      "FT",
+      "M",
+      "MM",
+      "CM",
+      "MTR",
+      "INCH",
+      "INCHES",
+      "FEET",
+      "FOOT",
+      "METER"
+    ],
     "length_is_cable_context": true,
     "_note": "If unit is a length unit → use cable_box_rules for WIRE. For CONNECTOR: use smt_rules if on PCBA sheet, cable_box_rules if length unit or cable context."
   }

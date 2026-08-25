@@ -26,8 +26,16 @@ def _load_json(filename):
         return json.load(f)
 
 
-DICTIONARY = _load_json("component_dictionary.json")
-RULES      = _load_json("attrition_rules.json")
+def _active_rules_filename() -> str:
+    """Resolve the currently active rules file via _active_rules.json pointer.
+    Falls back to the original attrition_rules.json."""
+    from file_versions import active_filename
+    return active_filename("attrition_rules.json")
+
+
+from file_versions import active_filename as _active_filename
+DICTIONARY = _load_json(_active_filename("component_dictionary.json"))
+RULES      = _load_json(_active_rules_filename())
 
 # ── Flatten keyword → type map (ignore _comment* keys) ───────────────────────
 _KEYWORD_MAP: dict[str, str] = {}
@@ -130,11 +138,14 @@ def get_attrition_rate(
     canonical_type: str,
     package: str | None,
     unit: str | None,
+    description: str | None = None,
 ) -> float:
     """
     Look up attrition rate from attrition_rules.json.
     Decision logic:
       - If unit is a length unit → cable_box_rules (e.g. WIRE)
+      - CONNECTOR: cable context (housing/crimp in description) → cable_box_rules,
+        otherwise smt_rules (PCBA headers)
       - Else → smt_rules, with package sub-lookup for RES/CAP
     Returns rate as decimal (e.g. 0.10 for 10%).
     """
@@ -149,7 +160,12 @@ def get_attrition_rate(
     _ALWAYS_CABLE = {"WIRE", "TERMINAL", "HEAT_SHRINK", "CABLE_TIE",
                      "LABEL", "POWER_MONITOR"}
 
-    if canonical_type in _ALWAYS_CABLE:
+    desc_upper = (description or "").upper()
+    if canonical_type == "CONNECTOR" and any(
+            k in desc_upper for k in ("HOUSING", "CRIMP")):
+        # Connector / Housing in a cable assembly → 0.5%
+        table = RULES["cable_box_rules"]
+    elif canonical_type in _ALWAYS_CABLE:
         table = RULES["cable_box_rules"]
     elif is_length:
         # Length unit + non-wire → cable context (heat shrink sold by length, etc.)
@@ -262,7 +278,7 @@ def analyze_row(
     package = detect_package(description)
 
     # ── Step 3: Get attrition rate ────────────────────────────────────────────
-    rate = get_attrition_rate(canonical_type, package, unit)
+    rate = get_attrition_rate(canonical_type, package, unit, description)
 
     # ── Step 4: Calculate Qty with attrition ──────────────────────────────────
     qty_final = apply_attrition(qty, rate, unit)
