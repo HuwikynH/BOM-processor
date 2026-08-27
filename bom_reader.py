@@ -76,15 +76,16 @@ def detect_columns(headers: list) -> dict[str, int]:
     return found
 
 
-def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None]:
+def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None, list]:
     """
     Open xlsx file. For each sheet, try to detect BOM columns in row 1.
     Returns:
-      (rows, col_map, sheet_name)
-        rows     : list of dicts per data row
-        col_map  : {role: col_index}
-        sheet_name: name of the sheet used
-    Returns ([], {}, None) if no suitable sheet found.
+      (rows, col_map, sheet_name, header_values)
+        rows        : list of dicts per data row
+        col_map     : {role: col_index}
+        sheet_name  : name of the sheet used
+        header_values: list of header cell values from the detected header row
+    Returns ([], {}, None, []) if no suitable sheet found.
 
     Each row dict has keys:
       raw_row      : tuple of all cell values
@@ -124,7 +125,14 @@ def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None]:
                 best_data_start_row = row_idx + 1
 
     if not best_sheet or "description_col" not in best_col_map:
-        return [], {}, None
+        return [], {}, None, []
+
+    # Get header row values from the detected header row
+    header_row_idx = best_data_start_row - 1
+    header_ws = wb[best_sheet]
+    header_values = []
+    for cell in header_ws[header_row_idx]:
+        header_values.append(cell.value)
 
     ws = wb[best_sheet]
     rows_out: list[dict] = []
@@ -177,7 +185,7 @@ def read_bom_file(filepath: str) -> tuple[list[dict], dict, str | None]:
             "row_number":  row_idx,
         })
 
-    return rows_out, best_col_map, best_sheet
+    return rows_out, best_col_map, best_sheet, header_values
 
 
 def get_available_sheets(filepath: str) -> list[str]:

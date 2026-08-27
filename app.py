@@ -39,17 +39,30 @@ CLR_ROW_ODD   = "#ffffff"
 CLR_HEADER_BG = "#e4e4e7"
 
 # ── Attrition band colours ─────────────────────────────────────────────────────
-def _att_colour(rate: float) -> str:
-    if rate == 0.0:
-        return "#a1a1aa"      # grey  – no attrition
-    elif rate <= 0.01:
-        return "#34d399"      # green – 1%
-    elif rate <= 0.02:
-        return "#60a5fa"      # blue  – 2%
-    elif rate <= 0.05:
-        return "#fbbf24"      # orange– 5%
-    else:
-        return "#f87171"      # red   – 10%+
+# Continuous gradient anchors: (pct, RGB). Any custom rate from edited rules
+# gets a smooth colour between anchors instead of falling into fixed bands.
+_ATT_ANCHORS = [
+    (0.0,  (0x71, 0x71, 0x7a)),   # grey    – 0%
+    (0.5,  (0x0d, 0x94, 0x88)),   # teal    – 0.5%
+    (1.0,  (0x05, 0x96, 0x69)),   # green   – 1%
+    (2.0,  (0x25, 0x63, 0xeb)),   # blue    – 2%
+    (3.0,  (0x7c, 0x3a, 0xed)),   # violet  – 3%
+    (5.0,  (0xd9, 0x77, 0x06)),   # orange  – 5%
+    (10.0, (0xdc, 0x26, 0x26)),   # red     – 10%+
+]
+
+
+def _att_gradient_hex(pct: float) -> str:
+    if pct <= 0:
+        return "#71717a"
+    if pct >= 10:
+        return "#dc2626"
+    for (p1, c1), (p2, c2) in zip(_ATT_ANCHORS, _ATT_ANCHORS[1:]):
+        if p1 <= pct <= p2:
+            t = (pct - p1) / (p2 - p1)
+            rgb = tuple(round(a + (b - a) * t) for a, b in zip(c1, c2))
+            return "#%02x%02x%02x" % rgb
+    return "#71717a"
 
 
 
@@ -83,10 +96,11 @@ class BOMApp(ctk.CTk):
     def __init__(self):
         super().__init__()
 
-        self.title("BOM Processor  v1.2")
+        self.title("BOM Processor  v1.5")
         self.geometry("1100x680")
         self.minsize(900, 540)
         self.configure(fg_color=CLR_BG)
+        self.after(0, lambda: self.state("zoomed") if hasattr(self, "state") else None)
 
         self._filepath: str | None = None
         self._all_rows: list[dict] = []   # processed result rows
@@ -194,15 +208,45 @@ class BOMApp(ctk.CTk):
             bar, text="Attrition:", font=ctk.CTkFont(size=14), text_color=CLR_MUTED
         ).pack(side="left", padx=(20, 4))
         self.att_filter_var = tk.StringVar(value="All")
-        att_combo = ctk.CTkComboBox(
+        self.att_combo = ctk.CTkComboBox(
             bar,
-            values=["All", "0.0%", "0.5%", "1.0%", "2.0%", "3.0%", "5.0%", "10.0%", "Unknown"],
+            values=["All", "Unknown"],
             variable=self.att_filter_var,
             width=110, height=28,
             fg_color="#ffffff", border_color="#d4d4d8", text_color="#18181b",
             command=self._on_filter_change,
         )
-        att_combo.pack(side="left", padx=4)
+        self.att_combo.pack(side="left", padx=4)
+
+        # Internal P/N column selector
+        ctk.CTkLabel(
+            bar, text="Internal P/N Col:", font=ctk.CTkFont(size=13), text_color=CLR_MUTED
+        ).pack(side="left", padx=(16, 4))
+        self.int_pn_col_var = tk.StringVar(value="Auto")
+        self.int_pn_col_combo = ctk.CTkComboBox(
+            bar,
+            values=["Auto"],
+            variable=self.int_pn_col_var,
+            width=160, height=28,
+            fg_color="#ffffff", border_color="#d4d4d8", text_color="#18181b",
+            command=self._on_int_pn_col_change,
+        )
+        self.int_pn_col_combo.pack(side="left", padx=4)
+
+        # MFR P/N column selector
+        ctk.CTkLabel(
+            bar, text="MFR P/N Col:", font=ctk.CTkFont(size=13), text_color=CLR_MUTED
+        ).pack(side="left", padx=(16, 4))
+        self.mfr_pn_col_var = tk.StringVar(value="Auto")
+        self.mfr_pn_col_combo = ctk.CTkComboBox(
+            bar,
+            values=["Auto"],
+            variable=self.mfr_pn_col_var,
+            width=160, height=28,
+            fg_color="#ffffff", border_color="#d4d4d8", text_color="#18181b",
+            command=self._on_mfr_pn_col_change,
+        )
+        self.mfr_pn_col_combo.pack(side="left", padx=4)
 
         # Row counter label (right)
         self.lbl_count = ctk.CTkLabel(
@@ -255,22 +299,15 @@ class BOMApp(ctk.CTk):
         self.tree.heading("qty",          text="Qty",            anchor="e",     command=lambda: self._sort_by("qty"))
         self.tree.heading("attrition",   text="Attrition %",    anchor="center", command=lambda: self._sort_by("attrition"))
 
-        self.tree.column("no",          width=46,  minwidth=40,  stretch=False, anchor="center")
-        self.tree.column("part_type",   width=180, minwidth=120, stretch=False, anchor="w")
+        self.tree.column("no",          width=46,  minwidth=40,  stretch=True,  anchor="center")
+        self.tree.column("part_type",   width=180, minwidth=120, stretch=True,  anchor="w")
         self.tree.column("description", width=420, minwidth=250, stretch=True,  anchor="w")
-        self.tree.column("mfr_pn",      width=140, minwidth=90,  stretch=False, anchor="w")
-        self.tree.column("int_pn",      width=140, minwidth=90,  stretch=False, anchor="w")
-        self.tree.column("qty",         width=80,  minwidth=70,  stretch=False, anchor="e")
-        self.tree.column("attrition",   width=110, minwidth=90,  stretch=False, anchor="center")
+        self.tree.column("mfr_pn",      width=180, minwidth=120, stretch=True,  anchor="w")
+        self.tree.column("int_pn",      width=180, minwidth=120, stretch=True,  anchor="w")
+        self.tree.column("qty",         width=80,  minwidth=70,  stretch=True,  anchor="e")
+        self.tree.column("attrition",   width=110, minwidth=90,  stretch=True,  anchor="center")
 
-        # Tag colours for attrition bands
-        self.tree.tag_configure("att_0",   foreground="#71717a")
-        self.tree.tag_configure("att_0.5", foreground="#0284c7")
-        self.tree.tag_configure("att_1",   foreground="#059669")
-        self.tree.tag_configure("att_2",   foreground="#2563eb")
-        self.tree.tag_configure("att_3",   foreground="#7e22ce")
-        self.tree.tag_configure("att_5",   foreground="#d97706")
-        self.tree.tag_configure("att_10",  foreground="#dc2626")
+        # Tag colours for attrition — configured dynamically per unique rate
         self.tree.tag_configure("unknown", foreground="#be185d")
         self.tree.tag_configure("row_odd", background=CLR_ROW_ODD)
 
@@ -366,13 +403,17 @@ class BOMApp(ctk.CTk):
 
     def _process_thread(self):
         try:
-            rows, col_map, sheet = read_bom_file(self._filepath)
+            rows, col_map, sheet, header_values = read_bom_file(self._filepath)
             if not rows:
                 self.after(0, self._show_error,
                            "No suitable sheet found.\n"
                            "Make sure row 1 contains column headers "
                            "(Description / Part Type / Qty / Unit).")
                 return
+
+            # Store raw rows for column remapping
+            self._raw_rows = rows
+            self._col_map = col_map
 
             results = []
             for r in rows:
@@ -398,12 +439,17 @@ class BOMApp(ctk.CTk):
                 })
 
             self._all_rows = results
-            self.after(0, self._populate_table, results, sheet, col_map)
+            self.after(0, self._populate_table, results, sheet, col_map, header_values)
 
         except Exception as exc:
             self.after(0, self._show_error, str(exc))
 
-    def _populate_table(self, results: list[dict], sheet: str, col_map: dict):
+    def _populate_table(self, results: list[dict], sheet: str, col_map: dict, header_values: list):
+        # Store header values for column remapping
+        self._header_values = header_values
+        # Populate column selector dropdowns
+        self._update_pn_column_combos(col_map, header_values)
+
         # Apply current filter
         self._render_rows(results)
         matched   = len(results)
@@ -417,6 +463,103 @@ class BOMApp(ctk.CTk):
         self.btn_process.configure(state="normal", text="▶  Process")
         self.btn_export.configure(state="normal")
 
+    def _on_int_pn_col_change(self, selected: str):
+        """Re-extract Internal P/N from selected column."""
+        self._remap_pn_column(selected, "internal_pn")
+        self._render_rows()
+
+    def _on_mfr_pn_col_change(self, selected: str):
+        """Re-extract MFR P/N from selected column."""
+        self._remap_pn_column(selected, "mpn")
+        self._render_rows()
+
+    def _remap_pn_column(self, selected_header: str, target_field: str):
+        """Re-extract a P/N field from the selected column in raw rows."""
+        if not hasattr(self, "_raw_rows") or not self._raw_rows:
+            return
+        if selected_header == "Auto":
+            self._reprocess_all_rows()
+            return
+
+        if not hasattr(self, "_header_values") or not self._header_values:
+            return
+
+        # Find column index from actual header row
+        headers = [str(v) if v is not None else f"Col_{i}" for i, v in enumerate(self._header_values)]
+        try:
+            col_idx = headers.index(selected_header)
+        except ValueError:
+            return
+
+        # Extract values from selected column for each row
+        for i, row_dict in enumerate(self._raw_rows):
+            raw_row = row_dict["raw_row"]
+            if col_idx < len(raw_row):
+                val = raw_row[col_idx]
+                if val is not None and str(val).strip():
+                    self._all_rows[i][target_field] = str(val).strip()
+                else:
+                    self._all_rows[i][target_field] = None
+
+    def _reprocess_all_rows(self):
+        """Full re-process using original column detection."""
+        if not hasattr(self, "_raw_rows") or not self._raw_rows:
+            return
+        # Re-run analysis on all raw rows
+        for i, r in enumerate(self._raw_rows):
+            analysis = analyze_row(
+                part_type=r["part_type"],
+                description=r["description"],
+                qty=r["quantity"],
+                unit=r["unit"],
+            )
+            self._all_rows[i].update({
+                "part_type_raw":  r["part_type"],
+                "part_type_full": analysis["full_name"],
+                "description":    r["description"],
+                "attrition_rate": analysis["attrition_rate"],
+                "attrition_pct":  analysis["attrition_pct"],
+                "canonical_type": analysis["canonical_type"],
+                "resolved_via":   analysis["resolved_via"],
+                "qty_bom":        r.get("quantity", 0),
+                "unit":           r.get("unit", "EA"),
+                "mpn":            r.get("mpn"),
+                "internal_pn":    r.get("internal_pn"),
+            })
+
+    def _update_pn_column_combos(self, col_map: dict, header_values: list):
+        """Build list of available columns for P/N selectors."""
+        if not header_values:
+            return
+        # Use provided header values directly
+        headers = [str(v) if v is not None else f"Col_{i}" for i, v in enumerate(header_values)]
+
+        # Mark detected columns
+        detected = {}
+        for role, idx in col_map.items():
+            if idx < len(headers):
+                detected[role] = headers[idx]
+
+        # Build display list: "Auto" + header names
+        options = ["Auto"] + headers
+
+        # Update Internal P/N combo
+        self.int_pn_col_combo.configure(values=options)
+        # Set default: prefer internal_pn_col, then partnumber_col
+        default_int = detected.get("internal_pn_col") or detected.get("partnumber_col") or "Auto"
+        if default_int in options:
+            self.int_pn_col_var.set(default_int)
+        else:
+            self.int_pn_col_var.set("Auto")
+
+        # Update MFR P/N combo
+        self.mfr_pn_col_combo.configure(values=options)
+        default_mfr = detected.get("mpn_col") or detected.get("partnumber_col") or "Auto"
+        if default_mfr in options:
+            self.mfr_pn_col_var.set(default_mfr)
+        else:
+            self.mfr_pn_col_var.set("Auto")
+
     def _render_rows(self, results: list[dict] | None = None):
         if results is None:
             results = self._all_rows
@@ -424,25 +567,38 @@ class BOMApp(ctk.CTk):
         ft = self.filter_var.get().strip().lower()
         af = self.att_filter_var.get()
 
-        self.tree.delete(*self.tree.get_children())
-        shown = 0
-        self._visible_rows = []
-        for idx, r in enumerate(results, start=1):
-            # Text filter
+        # First pass: collect visible rows + unique pct values
+        visible = []
+        pct_set: set[float] = set()
+        for r in results:
             if ft and ft not in r["description"].lower() and ft not in r["part_type_full"].lower():
                 continue
-            # Attrition filter
             if af == "Unknown":
                 if r["canonical_type"] != "UNKNOWN":
                     continue
             elif af != "All" and r["attrition_pct"] != af:
                 continue
+            visible.append(r)
+            if r["canonical_type"] != "UNKNOWN":
+                pct_set.add(round(r["attrition_rate"] * 100, 1))
 
-            rate = r["attrition_rate"]
-            tag = self._rate_tag(rate, r["canonical_type"])
+        # Configure a tag for each unique pct (gradient)
+        for pct in pct_set:
+            tag = f"att_{pct:.1f}"
+            if not self.tree.tag_has(tag):
+                self.tree.tag_configure(tag, foreground=_att_gradient_hex(pct))
+
+        self.tree.delete(*self.tree.get_children())
+        self._visible_rows = []
+        for idx, r in enumerate(visible, start=1):
+            if r["canonical_type"] == "UNKNOWN":
+                tag = "unknown"
+            else:
+                pct = round(r["attrition_rate"] * 100, 1)
+                tag = f"att_{pct:.1f}"
             tags = (tag,) if idx % 2 == 0 else (tag, "row_odd")
 
-            # Part Type display: prefer raw from file, fallback to full name
+            # Part Type display
             if r.get("canonical_type") == "UNKNOWN":
                 pt_display = "???"
             elif r.get("canonical_type") == "OTHER_SPECIAL" and r.get("part_type_raw"):
@@ -461,19 +617,21 @@ class BOMApp(ctk.CTk):
                 tags=tags,
             )
             self._visible_rows.append(r)
-            shown += 1
 
         total = len(self._all_rows)
+        shown = len(self._visible_rows)
         self.lbl_count.configure(text=f"Showing {shown} / {total} rows")
 
-    @staticmethod
-    def _rate_tag(rate: float, ctype: str) -> str:
+        # Update attrition filter dropdown with actual rates present
+        if hasattr(self, "att_combo"):
+            rate_vals = ["All", "Unknown"] + sorted(f"{p:.1f}%" for p in pct_set)
+            self.att_combo.configure(values=rate_vals)
+
+    def _rate_tag(self, rate: float, ctype: str) -> str:
         if ctype == "UNKNOWN":
             return "unknown"
         pct = round(rate * 100, 1)
-        map_ = {0.0: "att_0", 0.5: "att_0.5", 1.0: "att_1",
-                2.0: "att_2", 3.0: "att_3", 5.0: "att_5", 10.0: "att_10"}
-        return map_.get(pct, "att_1")
+        return f"att_{pct:.1f}"
 
     def _on_filter_change(self, *_):
         self._render_rows()

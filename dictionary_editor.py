@@ -76,6 +76,7 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
         self.geometry("820x640")
         self.minsize(700, 480)
         self.configure(fg_color=CLR_BG)
+        self.after(0, lambda: self.state("zoomed") if hasattr(self, "state") else None)
         self.grab_set()
 
         self._on_save_callback = on_save_callback
@@ -349,11 +350,16 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
 
         choices = self._target_choices() if col == "#2" else None
         if choices:
-            widget = ttk.Combobox(self.tree, values=choices, state="readonly",
+            widget = ttk.Combobox(self.tree, values=choices, state="normal",
                                   font=("Segoe UI", 12), justify="left")
             widget.set(current_val)
             widget.place(x=x, y=y, width=w, height=h)
             widget.bind("<<ComboboxSelected>>", lambda e: self._commit_edit())
+            widget.bind("<Return>", self._commit_edit)
+            widget.bind("<KP_Enter>", self._commit_edit)
+            widget.bind("<Escape>", self._cancel_edit)
+            widget.bind("<FocusOut>", self._commit_edit)
+            widget.focus_set()
         else:
             var = tk.StringVar(value=current_val)
             widget = tk.Entry(self.tree, textvariable=var,

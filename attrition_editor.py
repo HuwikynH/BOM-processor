@@ -169,12 +169,15 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         self.geometry("760x600")
         self.minsize(640, 460)
         self.configure(fg_color=CLR_BG)
+        self.after(0, lambda: self.state("zoomed") if hasattr(self, "state") else None)
         self.grab_set()   # modal
 
         self._on_save_callback = on_save_callback
         self._rules: dict = _load_rules()
         self._dirty: bool = False          # unsaved changes flag
-        self._edit_entry: tk.Entry | None = None  # floating entry widget
+        self._edit_entry: tk.Widget | None = None  # floating editor widget (Entry or Combobox)
+        self._edit_row_id: str | None = None
+        self._edit_col: str | None = None
         self._all_rows: list[tuple] = []   # unfiltered rows of current tab
         self._key_paths: dict = {}
 
@@ -270,6 +273,12 @@ class AttritionEditorWindow(ctk.CTkToplevel):
                                      font=ctk.CTkFont(size=12, slant="italic"),
                                      text_color=CLR_MUTED, wraplength=440)
         self.lbl_desc.pack(side="left", padx=14, pady=6)
+
+        self._btn_add = ctk.CTkButton(btm, text="＋  Add Row", width=110, height=36,
+                                      fg_color="#e4e4e7", hover_color="#d4d4d8",
+                                      text_color="#18181b",
+                                      command=self._on_add_row)
+        self._btn_add.pack(side="right", padx=4, pady=8)
 
         self._btn_save = ctk.CTkButton(btm, text="💾  Save as New Version", width=190, height=36,
                       fg_color=CLR_ACCENT, hover_color="#15803d", text_color="#ffffff",
@@ -407,95 +416,144 @@ class AttritionEditorWindow(ctk.CTkToplevel):
 
     # ── Inline editing ────────────────────────────────────────────────────────
     def _on_double_click(self, event: tk.Event):
-        """Start inline edit when user double-clicks the Attrition % column."""
+        """Start inline edit when user double-clicks Component Type, Package or Attrition % column."""
         region = self.tree.identify_region(event.x, event.y)
         if region != "cell":
             return
         col = self.tree.identify_column(event.x)
-        if col != "#3":       # only 3rd column (attrition)
+        if col not in ("#1", "#2", "#3"):   # Component Type (#1), Package (#2), Attrition% (#3)
             return
         row_id = self.tree.identify_row(event.y)
         if not row_id:
             return
 
-        self._cancel_edit()   # close any existing editor
-        self._start_edit(row_id)
+        self._cancel_edit()
+        self._start_edit(row_id, col)
 
-    def _start_edit(self, row_id: str):
-        """Overlay a small Entry widget on top of the selected cell."""
-        # Get bounding box of the attrition cell (#3)
-        bbox = self.tree.bbox(row_id, "#3")
+    def _start_edit(self, row_id: str, col: str):
+        """Overlay editor on Component Type (#1), Package (#2) or Attrition% (#3) cell with dropdown suggestions."""
+        bbox = self.tree.bbox(row_id, col)
         if not bbox:
             return
         x, y, w, h = bbox
 
-        current_val = self.tree.item(row_id, "values")[2]   # e.g. "10.0%"
-        # Strip % sign for editing
+        idx = int(col[1:]) - 1
+        current_val = self.tree.item(row_id, "values")[idx]
         edit_val = current_val.rstrip("%").strip()
 
+        # Dropdown suggestions per column & tab
+        tab = self._active_tab.get()
+        if col == "#1":   # Component Type column
+            # All canonical types from active rules (both SMT + Cable)
+            choices = sorted(set(
+                list(self._rules.get("smt_rules", {}).keys()) +
+                list(self._rules.get("cable_box_rules", {}).keys())
+            ))
+            # Filter out meta keys
+            choices = [c for c in choices if not c.startswith("_")]
+        elif col == "#2":   # Package column
+            if tab == "smt":
+                choices = ["0201", "0402", "0603", "0805", "1206", "1210", "1812", "2010", "2512",
+                           "SOD", "SOD-123", "SOD-323", "SOD-523",
+                           "SOT", "SOT-23", "SOT-89", "SOT-223", "SC-70",
+                           "SOP", "SOIC", "SO-8", "MSOP", "SSOP", "TSSOP", "TSOP",
+                           "QFP", "TQFP", "PQFP", "LQFP",
+                           "QFN", "DFN", "MLF",
+                           "BGA", "FBGA", "CBGA", "BGA_FPGA", "CSP",
+                           "(default)"]
+            else:
+                choices = ["(all)"]   # cable tab has no package sub-types
+        else:   # Attrition% column
+            choices = ["0", "0.5", "1", "2", "3", "5", "10", "15", "20"]
+
         var = tk.StringVar(value=edit_val)
-        entry = tk.Entry(
-            self.tree,
-            textvariable=var,
-            font=("Segoe UI", 13, "bold"),
-            bg="#ffffff",
-            fg=CLR_EDIT_HL,
-            insertbackground=CLR_TEXT,
-            relief="flat",
-            bd=2,
-            highlightthickness=2,
-            highlightcolor=CLR_ACCENT,
-            highlightbackground=CLR_ACCENT,
-            justify="center",
-        )
-        entry.place(x=x, y=y, width=w, height=h)
-        entry.focus_set()
-        entry.select_range(0, "end")
+        widget = ttk.Combobox(self.tree, values=choices, state="normal",
+                              font=("Segoe UI", 13, "bold"), justify="center")
+        widget.set(edit_val)
+        widget.place(x=x, y=y, width=w, height=h)
+        widget.focus_set()
+        widget.bind("<<ComboboxSelected>>", lambda e: self._commit_edit())
+        widget.bind("<Return>",  self._commit_edit)
+        widget.bind("<KP_Enter>", self._commit_edit)
+        widget.bind("<Escape>",  self._cancel_edit)
+        widget.bind("<Tab>",     self._commit_edit)
+        widget.bind("<FocusOut>", self._commit_edit)
 
-        self._edit_entry = entry
+        self._edit_entry = widget
         self._edit_row_id = row_id
-        self._edit_var = var
-
-        entry.bind("<Return>",  self._commit_edit)
-        entry.bind("<KP_Enter>", self._commit_edit)
-        entry.bind("<Escape>",  self._cancel_edit)
-        entry.bind("<Tab>",     self._commit_edit)
-        entry.bind("<FocusOut>", self._commit_edit)
+        self._edit_col = col
+        self._edit_var = widget  # combobox itself holds the value
 
     def _commit_edit(self, event=None):
-        """Validate and apply the edited value."""
+        """Validate and apply the edited value (Component Type, Package or Attrition%)."""
         if self._edit_entry is None:
             return
-        raw = self._edit_var.get().strip().rstrip("%").strip()
-        try:
-            new_pct = float(raw)
-            if not (0.0 <= new_pct <= 100.0):
-                raise ValueError("out of range")
-        except ValueError:
-            self._flash_error("Enter a number between 0 and 100")
+        raw = str(self._edit_var.get()).strip().rstrip("%").strip()
+        if not raw:
+            self._cancel_edit()
             return
 
         row_id = self._edit_row_id
-        new_rate = new_pct / 100.0
+        col = self._edit_col
         key_path = self._key_paths[row_id]
-
-        # Update JSON in memory
         section, comp, pkg = key_path
-        self._rules[section][comp][pkg] = new_rate
 
-        # Update treeview cell
-        old_vals = list(self.tree.item(row_id, "values"))
-        old_vals[2] = f"{new_pct:.1f}%"
-        self.tree.item(row_id, values=old_vals)
+        if col == "#1":   # Component Type column
+            new_comp = raw
+            if new_comp != comp:
+                # Move rule to new component name
+                if new_comp in self._rules[section]:
+                    # Merge: add packages to existing component
+                    for pkg_key, rate_val in self._rules[section][comp].items():
+                        if pkg_key in self._rules[section][new_comp]:
+                            # Keep existing, warn? For now skip
+                            pass
+                        else:
+                            self._rules[section][new_comp][pkg_key] = rate_val
+                    del self._rules[section][comp]
+                else:
+                    self._rules[section][new_comp] = self._rules[section].pop(comp)
+                key_path = (section, new_comp, pkg)
+                self._key_paths[row_id] = key_path
+            # Update treeview
+            old_vals = list(self.tree.item(row_id, "values"))
+            old_vals[0] = new_comp
+            self.tree.item(row_id, values=old_vals)
+
+        elif col == "#2":   # Package column
+            new_pkg = raw
+            if new_pkg != pkg:
+                self._rules[section][comp][new_pkg] = self._rules[section][comp].pop(pkg)
+                key_path = (section, comp, new_pkg)
+                self._key_paths[row_id] = key_path
+            old_vals = list(self.tree.item(row_id, "values"))
+            old_vals[1] = new_pkg
+            self.tree.item(row_id, values=old_vals)
+
+        else:   # Attrition% column
+            try:
+                new_pct = float(raw)
+                if not (0.0 <= new_pct <= 100.0):
+                    raise ValueError("out of range")
+            except ValueError:
+                self._flash_error("Enter a number between 0 and 100")
+                return
+            new_rate = new_pct / 100.0
+            self._rules[section][comp][pkg] = new_rate
+            old_vals = list(self.tree.item(row_id, "values"))
+            old_vals[2] = f"{new_pct:.1f}%"
+            self.tree.item(row_id, values=old_vals)
 
         # Mark as edited
         existing_tags = list(self.tree.item(row_id, "tags"))
         if "edited" not in existing_tags:
             existing_tags.append("edited")
-        if new_rate == 0.0 and "zero" not in existing_tags:
-            existing_tags.append("zero")
-        elif new_rate != 0.0 and "zero" in existing_tags:
-            existing_tags.remove("zero")
+        if col == "#3":
+            pct = float(raw)
+            if pct == 0.0 and "zero" not in existing_tags:
+                existing_tags.append("zero")
+            elif pct != 0.0 and "zero" in existing_tags:
+                existing_tags.remove("zero")
         self.tree.item(row_id, tags=tuple(existing_tags))
 
         self._set_dirty(True)
@@ -512,6 +570,7 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         if self._edit_entry:
             self._edit_entry.destroy()
             self._edit_entry = None
+            self._edit_col = None
 
     def _flash_error(self, msg: str):
         self.lbl_status.configure(text=f"  ⚠  {msg}", text_color=CLR_WARN)
@@ -552,6 +611,39 @@ class AttritionEditorWindow(ctk.CTkToplevel):
         except Exception as exc:
             self.lbl_status.configure(
                 text=f"  Save failed: {exc}", text_color=CLR_WARN)
+
+    def _on_add_row(self):
+        """Add a new component/package rule entry to the current tab."""
+        tab = self._active_tab.get()
+        if tab == "smt":
+            section = self._rules["smt_rules"]
+            # Find a new component name
+            base = "NEW_COMPONENT"
+            name, i = base, 1
+            while name in section:
+                i += 1
+                name = f"{base}{i}"
+            # Add with a default package
+            section[name] = {"_default": 0.01, "_comment": "User added"}
+        else:
+            section = self._rules["cable_box_rules"]
+            base = "NEW_COMPONENT"
+            name, i = base, 1
+            while name in section:
+                i += 1
+                name = f"{base}{i}"
+            section[name] = {"_default": 0.01, "_comment": "User added"}
+        self._populate_current_tab()
+        self._set_dirty(True)
+        # Select the new row
+        for iid, locator in self._key_paths.items():
+            if locator[1] == name:
+                self.tree.see(iid)
+                self.tree.selection_set(iid)
+                break
+        self.lbl_status.configure(
+            text=f"  Đã thêm '{name}' — double-click Package/Attrition% để sửa.",
+            text_color=CLR_MUTED)
 
     def _on_version_selected(self, display_name: str):
         """Switch the active rules version."""
