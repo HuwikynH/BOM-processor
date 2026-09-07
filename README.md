@@ -1,125 +1,165 @@
-# ⚡ BOM Processor v1.5 – Hướng Dẫn Sử Dụng Chi Tiết (User Manual)
+# QUY TRÌNH ĐÀO TẠO SỬ DỤNG BOM PROCESSOR
 
-Chào mừng bạn đến với tài liệu hướng dẫn sử dụng **BOM Processor v1.5**. Ứng dụng này được thiết kế nhằm tự động hóa quy trình phân tích bảng kê linh kiện (Bill of Materials - BOM), nhận diện loại linh kiện và tính toán tự động số lượng hao hụt (attrition) để phục vụ cho việc nhập/xuất kho chính xác.
-
----
-
-## 1. 🚀 Khởi động ứng dụng
-
-Để chạy ứng dụng, bạn có thể thực hiện 1 trong 2 cách sau:
-- **Cách 1**: Bấm đúp vào file `run_app.bat` (nếu dùng Windows).
-- **Cách 2**: Mở terminal/cmd ở thư mục chứa ứng dụng và chạy lệnh:
-  ```bash
-  pip install customtkinter openpyxl pandas
-  python main.py
-  ```
+| Phiên bản | Ngày ban hành | Tạo mới / Sửa đổi | Kiểm tra | Chấp nhận | Diễn giải |
+| :---: | :---: | :---: | :---: | :---: | :--- |
+| v1.5 | 9/7/2026 | | | | Phát hành tài liệu hướng dẫn sử dụng chi tiết toàn tập từ   |
 
 ---
 
-## 2. 🎯 Quy trình xử lý BOM cơ bản
+## MỤC LỤC 
 
-Một phiên làm việc thông thường sẽ trải qua 3 bước:
+1.0 [GIỚI THIỆU TỔNG QUAN](#10-giới-thiệu-tổng-quan)
 
-1. **📂 Open File**: Bấm nút này để chọn file BOM định dạng Excel (`.xlsx`, `.XLSX`). Ứng dụng sẽ đọc 30 dòng đầu tiên để tự động dò tìm vị trí các cột dữ liệu quan trọng (Description, Part Type, Qty...).
-2. **▶ Process**: Sau khi file được tải xong, nút Process sẽ sáng lên. Bấm vào đây để ứng dụng bắt đầu phân tích từng dòng:
-   - Nhận diện loại linh kiện (Resistor, Capacitor, Wire...).
-   - Nhận diện kích thước/chuẩn đóng gói (Package như 0402, 0603, SOP, QFN...).
-   - Áp dụng quy tắc tính % hao hụt (Attrition %).
-3. **📥 Export**: Cuối cùng, bấm nút Export để xuất kết quả bảng đã được xử lý ra một file Excel mới. 
+2.0 [KHỞI ĐỘNG VÀ NẠP DỮ LIỆU TỪ  ](#20-khởi-động-và-nạp-dữ-liệu-từ- )
 
----
+3.0 [THAO TÁC TRÊN BẢNG DỮ LIỆU (MAIN GRID)](#30-thao-tác-trên-bảng-dữ-liệu-main-grid)
 
-## 3. 🖥️ Khám phá Giao diện chính (Main UI) & Bảng dữ liệu
+4.0 [TÙY BIẾN CỘT VÀ XUẤT/SAO CHÉP DỮ LIỆU](#40-tùy-biến-cột-và-xuấtsao-chép-dữ-liệu)
 
-### Cấu trúc bảng kết quả
-Bảng dữ liệu (Treeview) hiển thị tổng quan các dòng BOM đã qua xử lý với các cột sau:
-- **#**: Số thứ tự dòng trên giao diện.
-- **Part Type**: Loại linh kiện đã được ứng dụng chuẩn hóa (Ví dụ: `Resistor [0402]`, `Wire / Cable`).
-- **Description (original)**: Mô tả gốc từ file BOM chưa qua chỉnh sửa.
-- **MFR P/N**: Mã linh kiện của nhà sản xuất.
-- **Internal P/N**: Mã linh kiện nội bộ.
-- **Qty**: Số lượng gốc từ BOM (chưa tính hao hụt).
-- **Attrition %**: Tỷ lệ hao hụt được ứng dụng cấp phát. **Mỗi % hao hụt có một màu sắc hiển thị khác nhau (màu gradient tự động nội suy).**
+5.0 [TRÌNH QUẢN LÝ QUY TẮC HAO HỤT (RULES EDITOR)](#50-trình-quản-lý-quy-tắc-hao-hụt-rules-editor)
 
-### Thanh trạng thái (Status Bar)
-Nằm ở dưới cùng của cửa sổ ứng dụng (nền màu vàng nhạt). Đây là nơi hiển thị trạng thái hiện tại: File đang mở, số lượng linh kiện không nhận dạng được (unknown), thông báo lỗi, trạng thái copy dữ liệu, hoặc thông báo lưu thành công.
+6.0 [TRÌNH QUẢN LÝ TỪ ĐIỂN (DICTIONARY EDITOR)](#60-trình-quản-lý-từ-điển-dictionary-editor)
+
+7.0 [LOGIC TOÁN HỌC VÀ LÀM TRÒN (MATH & ROUNDING)](#70-logic-toán-học-và-làm-tròn-math--rounding)
+
+8.0 [XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)](#80-xử-lý-sự-cố-thường-gặp-troubleshooting)
 
 ---
 
-## 4. 🛠 Các tính năng tương tác và Tùy biến dữ liệu
+## 1.0 GIỚI THIỆU TỔNG QUAN
 
-Từ nhỏ đến lớn, bạn có rất nhiều công cụ để tinh chỉnh dữ liệu trực tiếp trên bảng hiển thị:
-
-### 4.1. Tìm kiếm và Lọc (Filter & Search)
-- **Ô Filter (Tìm kiếm văn bản)**: Nhập từ khóa (tên, thông số, mô tả...). Bảng sẽ lọc trực tiếp (real-time) ra các dòng có chứa từ khóa trong cột *Description* hoặc *Part Type*.
-- **Dropdown Attrition**: Bấm vào đây để lọc các linh kiện theo một % hao hụt cụ thể, hoặc lọc ra những linh kiện chưa nhận diện được (`Unknown`).
-
-### 4.2. Sắp xếp (Sorting)
-Bạn có thể sắp xếp tăng/giảm dần (A-Z, Z-A) bằng cách **Click trực tiếp vào tiêu đề của bất kỳ cột nào**. Click lần nữa để đảo ngược chiều sắp xếp.
-
-### 4.3. Chọn cột hiển thị Mã linh kiện (MFR P/N & Internal P/N)
-Hai cột **MFR P/N** và **Internal P/N** có biểu tượng **▼** cạnh tiêu đề.
-- **Click vào tiêu đề có biểu tượng ▼**, một menu thả xuống sẽ hiện ra liệt kê tất cả các tên cột có trong file BOM gốc của bạn.
-- Bạn có thể chủ động chọn cột dữ liệu gốc bạn muốn ánh xạ vào, nội dung cột sẽ thay đổi tức thì. 
-- Chọn **Auto (tự động detect)** để đưa ứng dụng về chế độ tự tìm cột tối ưu nhất.
-
-### 4.4. Chỉnh sửa thủ công Loại linh kiện (Inline Edit Part Type)
-Nếu ứng dụng nhận dạng sai một linh kiện, bạn có thể sửa trực tiếp trên bảng:
-1. **Double-click** (nhấp đúp) vào ô **Part Type** của dòng linh kiện đó.
-2. Một hộp thoại tìm kiếm (Searchable Combobox) sẽ xuất hiện. 
-3. Bạn có thể gõ từ khóa (ví dụ: `Capacitor`) và dùng phím mũi tên để chọn loại/kích thước linh kiện đúng. 
-4. Ngay khi bấm **Enter**, hệ thống sẽ tự động tính toán lại % hao hụt cho dòng đó dựa theo loại bạn vừa gán.
-
-### 4.5. Sao chép dữ liệu (Copy Data)
-- **Sao chép nhiều dòng**: Chọn một hoặc nhiều dòng (giữ `Shift` hoặc `Ctrl`), sau đó bấm `Ctrl + C`. Dữ liệu sẽ được copy dưới định dạng cách nhau bởi dấu Tab, có thể Paste trực tiếp vào file Excel cực kỳ thẳng hàng.
-- **Sao chép 1 ô (Cell)**: **Click chuột phải** vào bất kỳ ô nào bạn muốn, chọn lệnh **Copy...** hiện ra để sao chép duy nhất nội dung của ô đó.
+**BOM Processor** là phần mềm desktop chuyên dụng được thiết kế nhằm tự động hóa quy trình phân tích Bảng kê linh kiện (Bill of Materials - BOM).
+Thay vì phải dùng mắt đọc từng dòng và dùng hàm Excel thủ công, hệ thống sử dụng thuật toán dò tìm từ khóa để:
+- Tự động chuẩn hóa dữ liệu thô từ nhiều nguồn ERP khác nhau.
+- Nhận diện chính xác loại linh kiện (IC, Resistor, Wire...) và kích thước đóng gói (0402, QFN...).
+- Tự động gán tỷ lệ hao hụt (Attrition) an toàn cho sản xuất.
+- Trực quan hóa dữ liệu bằng hệ thống mã màu.
 
 ---
 
-## 5. 📥 Xuất dữ liệu (Export)
+## 2.0 KHỞI ĐỘNG VÀ NẠP DỮ LIỆU TỪ  
 
-Tính năng **Export** tuân theo nguyên tắc "Thấy gì xuất nấy" (WYSIWYG). File Excel sinh ra sẽ phản ánh **chính xác 7 cột bạn đang thấy trên màn hình**, kể cả khi bạn đã dùng Filter, đổi cột P/N, hay sửa Part Type.
+### 2.1 Khởi chạy ứng dụng
+1. Nhấp đúp vào file `.exe` đã đóng gói hoặc file `run_app.bat`.
+2. Ứng dụng sẽ tự động mở ở chế độ **Toàn màn hình (Maximized)** để bạn có không gian quan sát bảng dữ liệu tốt nhất. Thanh trạng thái (màu vàng nhạt) ở dưới cùng sẽ hiển thị "Ready".
 
-Thứ tự xuất sẽ là: `#`, `Part Type`, `Description (original)`, `MFR P/N`, `Internal P/N`, `Qty`, `Attrition %`.
+### 2.2 Nạp file Excel (Open File)
+1. Nhấp vào nút **"📂 Open File"** ở góc trên cùng bên trái.
+2. Chọn file BOM định dạng Excel (`.xlsx`, `.XLSX`). 
+   - *Lưu ý:* Ứng dụng được tích hợp bộ lọc chặn lỗi định dạng (`styles.xml`), giúp nó đọc mượt mà ngay cả những file Excel bị lỗi style xuất ra từ các hệ thống ERP đời cũ.
+3. **Logic dò tìm tiêu đề (Header Detection)**: Ứng dụng không yêu cầu file BOM của bạn phải bắt đầu từ dòng số 1. Nó sẽ quét thông minh từ dòng 1 đến dòng 30. Khi thấy một dòng có chứa các từ khóa như `Description`, `Qty`, `Part Number`, nó sẽ chốt đó là dòng tiêu đề và bỏ qua các dòng logo/thông tin công ty phía trên.
+4. Thanh trạng thái sẽ báo số lượng dòng dữ liệu đã tải thành công.
 
-*(Chú ý: Nếu bạn có tùy chọn đổi cột MFR P/N hay Internal P/N trên giao diện, tên tiêu đề xuất ra file Excel cũng sẽ tự động mang tên cột bạn đã chọn để đảm bảo tính đồng bộ).*
-
----
-
-## 6. ⚙️ Quản lý Quy tắc Hao hụt (Edit Rules)
-
-Nút **Edit Rules** sẽ mở một cửa sổ mới giúp bạn thay đổi tỷ lệ % hao hụt cho từng nhóm linh kiện.
-
-- **2 Tab phân chia logic**: 
-  - **SMT / PCBA**: Chứa quy tắc hao hụt cho các linh kiện điện tử dán/cắm (thường được xác định thông qua cả Component Type và Package).
-  - **Cable / Box**: Chứa quy tắc hao hụt cho nhóm dây cáp, lắp ráp cơ khí, vỏ hộp, vỏ gen...
-- **Sửa dữ liệu**: Bạn có thể click đúp vào các cột `Component Type`, `Package / Size` hoặc `Attrition %` để sửa trực tiếp thông qua các Dropdown tiện lợi.
-- **Thêm/Xóa dòng**: Hỗ trợ nút `+ Add Row` để định nghĩa loại linh kiện mới.
-- **Lưu phiên bản (Versioning)**: Khi bấm `Save as New Version`, hệ thống **không ghi đè** file gốc mà sẽ tạo ra một file cấu hình mới đánh dấu bằng thời gian. Bạn có thể tự do rollback lại các phiên bản cũ qua menu thả xuống ở góc trên.
-
----
-
-## 7. 📚 Quản lý Từ điển (Edit Dictionary)
-
-Nút **Edit Dictionary** chứa bộ não dịch thuật của ứng dụng, giúp biến những đoạn chuỗi viết tắt (như `RES`, `CBL`, `0805`, `EA`) thành thuật ngữ chuẩn. Có 6 Tab quan trọng:
-
-1. **SMT / PCBA (Keyword)**: Gắn từ viết tắt với linh kiện bảng mạch (VD: `RES` -> `RESISTOR`).
-2. **Cable / Box (Keyword)**: Gắn từ viết tắt với linh kiện cáp/cơ khí (VD: `CBL` -> `WIRE`).
-3. **Misc / Added**: Các từ vựng chung.
-4. **Package**: Gắn chuỗi thông số với chuẩn kích thước đóng gói (VD: `0805SMD` -> `0805`).
-5. **Units**: Xác định xem một loại đơn vị tính là dạng đếm số lượng (PCS) hay dạng đo chiều dài (LENGTH). Tùy vào loại đơn vị mà cách tính toán làm tròn (Rounding logic) hao hụt sẽ khác nhau.
-6. **Headers**: Định nghĩa các từ khóa mà hệ thống dùng để đi "săn" tên cột trong file BOM Excel (ví dụ thấy cột có chữ `MFG P/N`, nó sẽ hiểu đó là `mfr_pn_col`).
-
-Tất cả các thay đổi trong từ điển cũng hỗ trợ **Lưu phiên bản (Versioning)** y hệt như Edit Rules, giữ cho hệ thống của bạn an toàn trước những thay đổi sai lầm.
+### 2.3 Phân tích dữ liệu (Process)
+1. Sau khi nạp file, nút **"▶ Process"** sẽ sáng lên. Nhấp vào nút này.
+2. Ứng dụng sẽ chạy thuật toán lõi:
+   - Tách chuỗi văn bản từ cột `Description` và `Part Type` gốc.
+   - Quét qua **Từ điển (Dictionary)** để dịch các từ viết tắt.
+   - Nhận diện Package (ví dụ thấy `0805SMD` sẽ hiểu là `0805`).
+   - Tra bảng **Quy tắc (Rules)** để cấp phát % hao hụt.
+3. Toàn bộ bảng dữ liệu sẽ được hiển thị ngay lập tức với hệ thống màu sắc rực rỡ.
 
 ---
 
-## 8. ⚠️ Xử lý sự cố (Troubleshooting)
+## 3.0 THAO TÁC TRÊN BẢNG DỮ LIỆU (MAIN GRID)
 
-- **Lỗi không đọc được file Excel**: Đảm bảo file chưa bị khóa bởi phần mềm khác. Ứng dụng đã được tích hợp bộ lọc chặn lỗi định dạng (`styles.xml`) từ các phần mềm ERP xuất ra, nên có thể đọc hầu hết các chuẩn Excel 2007 trở lên.
-- **Không có dữ liệu hiện ra sau khi Process**: Đảm bảo rằng file Excel gốc của bạn có chứa cột mang tên "Description" hoặc các biến thể của nó ở trong vòng 30 dòng đầu tiên.
-- **Internal P/N hoặc MFR P/N bị trống**: Bạn có thể dùng tính năng Click vào tiêu đề (biểu tượng ▼) để chỉ định ép buộc cột dữ liệu.
-- **Linh kiện ra chữ "???" hoặc % hao hụt là 0**: Ứng dụng không tìm thấy từ khóa trong Từ Điển. Hãy dùng nút `Edit Dictionary` để bổ sung từ viết tắt đang có trong Description của linh kiện đó. Hoặc nhấp đúp vào ô Part Type để chỉ định thủ công!
+Bảng chính gồm 7 cột chuẩn hóa: `#`, `Part Type`, `Description (original)`, `MFR P/N`, `Internal P/N`, `Qty`, và `Attrition %`.
+
+### 3.1 Hệ thống mã màu (Gradient Attrition)
+Ứng dụng tự động nội suy màu nền cho tỷ lệ % hao hụt để người dùng nhận diện rủi ro bằng mắt thường:
+- **0% (Xám)**: Không hao hụt (Linh kiện lắp ráp cơ khí, Sheet metal).
+- **0.5% - 1% (Xanh lục)**: Hao hụt thấp (IC, Res/Cap lớn).
+- **2% - 5% (Xanh dương - Cam)**: Hao hụt trung bình (Diode, Dây điện, Res/Cap nhỏ).
+- **10% trở lên (Đỏ)**: Hao hụt cao (Linh kiện siêu nhỏ 0201, 0402).
+
+### 3.2 Sửa loại linh kiện siêu tốc (Inline Edit)
+Nếu ứng dụng phân loại sai do Description quá lạ, bạn KHÔNG cần sửa file Excel:
+1. **Nhấp đúp chuột (Double-click)** vào ô `Part Type` của linh kiện bị sai.
+2. Một hộp thoại tìm kiếm (Searchable Combobox) thông minh sẽ xuất hiện. Nếu nó che khuất dữ liệu bên dưới, nó sẽ tự động nhận diện màn hình và **xổ ngược lên trên**.
+3. Bạn có thể gõ từ khóa (ví dụ: `Capacitor`). Dropdown sẽ gợi ý các loại Capacitor cùng kích thước (vd: `Capacitor [0402]`, `Capacitor [0603]`).
+4. Dùng phím mũi tên Lên/Xuống để chọn và nhấn **Enter**. 
+5. Ngay lập tức, `Part Type` được cập nhật, và `% Hao hụt` tự động được tính toán lại theo quy tắc của loại bạn vừa chọn. Thanh trạng thái báo màu xanh lá cây xác nhận thành công.
+
+### 3.3 Sắp xếp dữ liệu (Sorting)
+- Click trực tiếp vào tiêu đề của bất kỳ cột nào để sắp xếp (  hoặc Tăng dần).
+- Click thêm lần nữa vào cột đó để đảo ngược thứ tự (Z-A hoặc Giảm dần).
+- Sắp xếp hoạt động với mọi cột, kể cả cột số lượng (`Qty`) hay phần trăm (`Attrition %`).
+
+### 3.4 Bộ lọc đa năng (Filter)
+- **Ô Filter Text**: Nằm ở thanh công cụ phía trên. Khi bạn gõ chữ (ví dụ: `connector`), bảng sẽ lọc **ngay lập tức theo thời gian thực (real-time)** ra các dòng có chứa từ "connector" trong mô tả.
+- **Dropdown % Hao hụt**: Kế bên ô Filter Text. Bạn có thể chọn lọc riêng các linh kiện có `%` cụ thể (ví dụ: `5.0%`), hoặc chọn `Unknown` để lọc ra toàn bộ các linh kiện mà ứng dụng chưa hiểu để bạn xử lý thủ công. Chọn `All` để hiện lại toàn bộ.
 
 ---
-*BOM Processor v1.5 - Phát triển nội bộ cho Fab9 Engineering.*
+
+## 4.0 TÙY BIẾN CỘT VÀ XUẤT/SAO CHÉP DỮ LIỆU
+
+### 4.1 Tùy biến cột Mã linh kiện (MFR & Internal P/N)
+Đôi khi hệ thống ERP xuất ra file có tên cột P/N rất dị, hoặc trộn lẫn mã nội bộ và mã nhà sản xuất.
+1. Nhìn lên tiêu đề cột `MFR P/N` hoặc `Internal P/N`, bạn sẽ thấy một biểu tượng **dấu mũi tên thả xuống (▼)**.
+2. Click vào biểu tượng ▼ này. Một danh sách chứa **toàn bộ tên cột có trong file Excel gốc** của bạn sẽ hiện ra.
+3. Chỉ cần chọn đúng cột bạn muốn gán. Dữ liệu trên bảng sẽ thay đổi ngay lập tức để lấy giá trị từ cột gốc bạn vừa chọn.
+4. Chọn **Auto** để trả quyền nhận diện tự động lại cho ứng dụng.
+
+### 4.2 Sao chép (Copy)
+- **Copy nguyên dòng/nhiều dòng**: Giữ `Ctrl` hoặc `Shift` để chọn nhiều dòng. Nhấn `Ctrl+C`. Dữ liệu sẽ vào Clipboard ngăn cách bằng phím Tab (hoàn hảo để paste vào Excel).
+- **Copy một ô duy nhất**: Nhấp chuột phải (Right-click) vào chính xác ô bạn muốn copy. Một menu nhỏ ghi `Copy: [Nội dung ô]` sẽ hiện ra. Nhấp vào để copy.
+
+### 4.3 Xuất file (Export)
+1. Nhấp nút **"📥 Export"**.
+2. File Excel xuất ra tuân thủ nghiêm ngặt nguyên tắc **Thấy gì xuất nấy (WYSIWYG)**. Nó sẽ chỉ xuất đúng **7 cột** đang hiển thị trên giao diện.
+3. Mọi thao tác Lọc (Filter), Sắp xếp (Sort), Đổi tên cột P/N, hay Chỉnh sửa thủ công Part Type của bạn đều được giữ nguyên 100% trong file Excel xuất ra. (Lưu ý: Tiêu đề cột P/N trong Excel xuất ra sẽ tự động đổi thành tên cột gốc mà bạn đã chọn qua nút ▼).
+
+---
+
+## 5.0 TRÌNH QUẢN LÝ QUY TẮC HAO HỤT (RULES EDITOR)
+
+Trình quản lý này chứa "Luật" cấp phát % hao hụt.
+- Nhấp nút **"⚙ Edit Rules"** để mở. Cửa sổ này nổi trên ứng dụng chính (không chặn thao tác của ứng dụng chính).
+- Có 2 Tab:
+  - **SMT / PCBA**: Dành cho linh kiện bo mạch (Resistor, IC, Diode...). Logic: Xét Component Type -> Xét Package -> Ra %.
+  - **Cable / Box**: Dành cho dây dẫn, cơ khí, ốc vít. Logic: Trực tiếp lấy % theo Component Type.
+
+### Hướng dẫn thao tác:
+1. **Sửa rule**: Nhấp đúp vào bất kỳ ô nào (`Component Type`, `Package`, hoặc `Attrition %`). Một Dropdown sẽ xổ ra để bạn chọn chuẩn xác, tránh gõ sai chính tả.
+2. **Thêm rule**: Nhấp nút **"+ Add Row"** ở dưới cùng để thêm một dòng trắng, sau đó click đúp để gán giá trị.
+3. **Lưu phiên bản (Versioning)**: Khi bạn có thay đổi, nút **"💾 Save as New Version"** sẽ sáng lên. Hệ thống **không bao giờ ghi đè file gốc**. Nó sẽ tạo ra một file có gắn ngày tháng (ví dụ: `_v2026-09-07_0930.json`).
+4. Khung Dropdown trên cùng cho phép bạn "quay ngược thời gian" (Rollback) về bất kỳ phiên bản luật nào trước đây, hoặc về file "Original". Nút 🗑 bên cạnh dùng để xóa phiên bản hiện tại (không thể xóa Original).
+
+---
+
+## 6.0 TRÌNH QUẢN LÝ TỪ ĐIỂN (DICTIONARY EDITOR)
+
+Trình quản lý này là "Bộ não dịch thuật" của ứng dụng.
+- Nhấp nút **"📚 Edit Dictionary"** để mở. Cửa sổ cũng nổi song song với app chính.
+- Gồm **6 Tab** quản lý 6 loại dịch thuật khác nhau:
+  1. **SMT / PCBA**: Gắn từ khóa trong mô tả (vd: `RES`, `CAP`) thành linh kiện chuẩn (`RESISTOR`, `CAPACITOR`).
+  2. **Cable / Box**: Gắn từ khóa cơ khí (vd: `CBL`, `SCREW`) thành `WIRE`, `SCREW_NUT_WASHER`.
+  3. **Misc / Added**: Các từ khóa phụ cần gộp chung.
+  4. **Package**: Dịch các cụm từ dị thành chuẩn đóng gói. (vd: `0805SMD`, `0805_1%` -> dịch thành chuẩn `0805`). Điều này giúp Rule SMT bắt trúng kích thước.
+  5. **Units**: Xác định xem một cụm từ đơn vị (`EA`, `PCS`, `M`, `FEET`) thuộc nhóm Đếm số (`PCS`) hay nhóm Đo chiều dài (`LENGTH`).
+  6. **Headers**: Dạy cho thuật toán quét file Excel biết những từ nào (vd: `MFG P/N`, `VENDOR PN`) được coi là cột Mã nhà sản xuất.
+
+### Hướng dẫn thao tác:
+Tương tự Rules Editor, nhấp đúp vào ô `Maps To` để mở Dropdown chọn loại chuẩn. Hỗ trợ hệ thống **Versioning** hoàn chỉnh (Save as New Version, Rollback, Delete).
+
+---
+
+## 7.0 LOGIC TOÁN HỌC VÀ LÀM TRÒN (MATH & ROUNDING)
+
+BOM Processor có thuật toán tự động làm tròn `Final Qty` (Số lượng cuối cùng sau hao hụt) khi xuất ra Excel, dựa trên bản chất đơn vị:
+1. **Nhóm Đếm số (PCS, EA, Cái, Bộ)**: Không thể mua nửa cái IC. Do đó thuật toán dùng `Ceiling` (Làm tròn LÊN số nguyên gần nhất). 
+   - *Ví dụ:* 100 cái x hao hụt 1.5% = 101.5 -> App sẽ tự động làm tròn lên thành **102**.
+2. **Nhóm Chiều dài (M, FT, INCH)**: Có thể cắt lẻ dây điện. Thuật toán giữ lại tối đa 3 chữ số thập phân.
+   - *Ví dụ:* 25 mét x hao hụt 5% = 26.25 -> App xuất ra đúng **26.25**.
+
+---
+
+## 8.0 XỬ LÝ SỰ CỐ THƯỜNG GẶP (TROUBLESHOOTING)
+
+1. **Lỗi "Không thấy dữ liệu sau khi Process"**:
+   - Đảm bảo file Excel gốc của bạn có chứa cột mang tên "Description" hoặc các biến thể của nó nằm trong phạm vi 30 dòng đầu tiên. Nếu tiêu đề nằm ở dòng 35, hãy xóa bớt các dòng trống/logo ở trên.
+2. **Cột MFR P/N và Internal P/N giống hệt nhau**:
+   - Trường hợp file BOM chỉ cung cấp 1 cột "Part Number" chung chung, ứng dụng sẽ điền dữ liệu cột đó cho cả MFR và Internal. Bạn hãy click vào biểu tượng ▼ trên tiêu đề để trỏ tay về cột bạn muốn.
+3. **Phần trăm hao hụt hiện 0% hoặc Part Type hiện "???"**:
+   - Từ khóa mô tả linh kiện này chưa có trong Từ điển. Hãy mở **Edit Dictionary**, thêm từ khóa đó vào tab SMT hoặc Cable. Lần Process sau ứng dụng sẽ thông minh hơn.
+   - Cách nhanh nhất: Double-click thẳng vào ô Part Type đó và chỉ định tay cho nhanh!
