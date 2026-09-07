@@ -1,213 +1,125 @@
-# ⚡ BOM Processor v1.5 – Công cụ Xử lý BOM (Fab9 Edition)
+# ⚡ BOM Processor v1.5 – Hướng Dẫn Sử Dụng Chi Tiết (User Manual)
 
-Phần mềm desktop tự động hóa quy trình xử lý Bill of Materials (BOM):
-- Chuẩn hóa dữ liệu, phân loại linh kiện tự động
-- Tính tỷ lệ hao hụt (Attrition) & số lượng mua thực tế
-- Quản lý quy tắc & từ điển theo phiên bản (versioned) – không ghi đè file gốc
-- Giao diện Light Mode chuẩn doanh nghiệp, hỗ trợ copy/dán, tìm kiếm, sort, filter
-- Mở toàn màn hình (maximized) mặc định trên Windows
+Chào mừng bạn đến với tài liệu hướng dẫn sử dụng **BOM Processor v1.5**. Ứng dụng này được thiết kế nhằm tự động hóa quy trình phân tích bảng kê linh kiện (Bill of Materials - BOM), nhận diện loại linh kiện và tính toán tự động số lượng hao hụt (attrition) để phục vụ cho việc nhập/xuất kho chính xác.
 
 ---
 
-## 🚀 Cài đặt & Khởi chạy
-```bash
-# Cài thư viện (chạy 1 lần)
-pip install customtkinter openpyxl pandas
-# Hoặc dùng file batch
-run_app.bat
-```
+## 1. 🚀 Khởi động ứng dụng
+
+Để chạy ứng dụng, bạn có thể thực hiện 1 trong 2 cách sau:
+- **Cách 1**: Bấm đúp vào file `run_app.bat` (nếu dùng Windows).
+- **Cách 2**: Mở terminal/cmd ở thư mục chứa ứng dụng và chạy lệnh:
+  ```bash
+  pip install customtkinter openpyxl pandas
+  python main.py
+  ```
 
 ---
 
-## 🎯 Quy trình cơ bản
-1. **📂 Open File** – Chọn file Excel BOM (`.xlsx`, `.XLSX`). Hệ thống tự tìm dòng header (tối đa 30 dòng đầu) bằng cách match tên cột.
-2. **▶ Process** – Chạy thuật toán:  
-   - Tách từ khóa từ cột *Description* / *Part Type*  
-   - Nhận diện package (0402, 0805, SOD, SOT…), đơn vị (EA/PCS/IN/FT/M…)  
-   - Tra bảng **Attrition Rules** → ra *Canonical Type*, *Attrition %*, *Final Qty*
-3. **Rà soát trên lưới** – Cột hiển thị:  
-   `#` | Part Type | Description | **MFR P/N** | **Internal P/N** | Qty | Attrition %
-   - **Double-click cột Part Type** → sửa loại linh kiện → Attrition % tự cập nhật (dropdown gợi ý)
-   - **Double-click cột Attrition %** (trong Editor) → sửa % trực tiếp (dropdown gợi ý)
-4. **🔍 Filter / Search / Sort** –  
-   - Ô *Filter*: tìm theo Description / Part Type  
-   - Dropdown *Attrition*: lọc theo % cụ thể hoặc *Unknown* (tự cập nhật % thực tế trong dữ liệu)  
-   - Click header cột → sort tăng/giảm (tất cả cột đều sort được)
-4. **📋 Copy dữ liệu** –  
-   - `Ctrl+C` → copy dòng/nhiều dòng (tab-separated, dán vào Excel tách cột)  
-   - Right-click 1 ô → *Copy: …* → copy đúng ô đó
-5. **📥 Export** – Xuất file Excel đúng thứ tự & filter đang xem (11 cột: Row, Original Part Type, Canonical Type, Description, **MFR Part Number**, **Internal Part Number**, BOM Qty, Unit, Attrition %, Attrition Rate, Final Qty)
-6. **🔧 Chọn cột P/N thủ công** – Dropdown **Internal P/N Col** / **MFR P/N Col** trên thanh filter: chọn cột bất kỳ từ file BOM → cột P/N cập nhật ngay; chọn *Auto* → tự detect lại
+## 2. 🎯 Quy trình xử lý BOM cơ bản
+
+Một phiên làm việc thông thường sẽ trải qua 3 bước:
+
+1. **📂 Open File**: Bấm nút này để chọn file BOM định dạng Excel (`.xlsx`, `.XLSX`). Ứng dụng sẽ đọc 30 dòng đầu tiên để tự động dò tìm vị trí các cột dữ liệu quan trọng (Description, Part Type, Qty...).
+2. **▶ Process**: Sau khi file được tải xong, nút Process sẽ sáng lên. Bấm vào đây để ứng dụng bắt đầu phân tích từng dòng:
+   - Nhận diện loại linh kiện (Resistor, Capacitor, Wire...).
+   - Nhận diện kích thước/chuẩn đóng gói (Package như 0402, 0603, SOP, QFN...).
+   - Áp dụng quy tắc tính % hao hụt (Attrition %).
+3. **📥 Export**: Cuối cùng, bấm nút Export để xuất kết quả bảng đã được xử lý ra một file Excel mới. 
 
 ---
 
-## 🎨 Mã màu Attrition % (gradient tự động)
-Mỗi % hao hụt có màu riêng, nội suy mượt từ **0% → 10%+**, không phụ thuộc giá trị cố định:
-| % | Màu | Ý nghĩa |
-|---|-----|---------|
-| 0% | Xám | Không hao hụt (Assembly, Sheet Metal…) |
-| 0.5% | Xanh ngọc | Connector/Housing, Terminal… |
-| 1% | Xanh lá | Resistor/Cap/IC/LED/Relay/Switch/Transformer… |
-| 2% | Xanh dương | Diode, Transistor, Inductor, Jumper… |
-| 3% | Tím | Connector SMT, Oscillator… |
-| 5% | Cam | Res/Cap 0201-0603, Wire, Jumper, Cable Tie, Heat Shrink… |
-| 10%+ | Đỏ | Res/Cap 0201/0402, các loại nhỏ, rủi ro cao |
+## 3. 🖥️ Khám phá Giao diện chính (Main UI) & Bảng dữ liệu
 
-> Khi bạn sửa rule tạo ra % mới (ví dụ 1.5%, 4%, 7%) màu vẫn được tính gradient tự động – không cần cấu hình thêm.
+### Cấu trúc bảng kết quả
+Bảng dữ liệu (Treeview) hiển thị tổng quan các dòng BOM đã qua xử lý với các cột sau:
+- **#**: Số thứ tự dòng trên giao diện.
+- **Part Type**: Loại linh kiện đã được ứng dụng chuẩn hóa (Ví dụ: `Resistor [0402]`, `Wire / Cable`).
+- **Description (original)**: Mô tả gốc từ file BOM chưa qua chỉnh sửa.
+- **MFR P/N**: Mã linh kiện của nhà sản xuất.
+- **Internal P/N**: Mã linh kiện nội bộ.
+- **Qty**: Số lượng gốc từ BOM (chưa tính hao hụt).
+- **Attrition %**: Tỷ lệ hao hụt được ứng dụng cấp phát. **Mỗi % hao hụt có một màu sắc hiển thị khác nhau (màu gradient tự động nội suy).**
 
----
-
-## ⚙️ **Edit Rules** – Cửa sổ cấu hình Attrition
-Mở bằng nút **⚙ Edit Rules** (góc trên phải). Mở toàn màn hình (maximized).
-
-### Giao diện
-- **Rules version** (dropdown) – chọn phiên bản đang dùng. *Lưu luôn tạo file mới `attrition_rules_v<timestamp>.json`, file gốc `attrition_rules.json` không bao giờ bị ghi đè.*
-- **🗑 Delete** – xóa phiên bản đang chọn (không xóa được bản Original). Nếu xóa bản đang active → tự fallback về Original.
-- 2 tab: **🔲 SMT / PCBA** | **🔌 Cable / Box** (màu chữ đen/trắng rõ ràng)
-- **🔍 Filter** – lọc nhanh theo tên loại / package
-- Bảng: *Component Type* | *Package / Size* | *Attrition %*
-  - **Double-click 3 cột đều có dropdown gợi ý:**
-    - **Component Type** → dropdown: tất cả loại từ rule active (RESISTOR, CAPACITOR, IC, CONNECTOR, WIRE, TERMINAL, HEAT_SHRINK, SCREW_NUT_WASHER, OTHER_SPECIAL…) – sửa xong rule tự move/rename
-    - **Package** (SMT) → dropdown: 0201/0402/0603/0805/1206/SOD/SOT/SOP/QFP/QFN/BGA/(default)… Cable: *(all)*
-    - **Attrition %** → dropdown: 0, 0.5, 1, 2, 3, 5, 10, 15, 20 (có thể gõ tùy ý)
-  - Dòng đầu mỗi nhóm loại có nền nhấn nhẹ
-- **＋ Add Row** – thêm dòng mới (mặc định `_default: 1%`)
-- **💾 Save as New Version** – chỉ bật khi có thay đổi (dirty). Sau save: dropdown refresh, chọn bản mới, engine reload tự động.
-
-### Logic tra Attrition
-| Loại | Bảng dùng | Điều kiện |
-|------|-----------|-----------|
-| WIRE, TERMINAL, HEAT_SHRINK, CABLE_TIE, LABEL, POWER_MONITOR | **cable_box_rules** | Luôn |
-| CONNECTOR | **cable_box_rules** | Description chứa `HOUSING` hoặc `CRIMP` |
-| CONNECTOR | **smt_rules** | Các trường hợp còn lại (Header, RCPT trên PCBA…) |
-| Có đơn vị đo độ dài (IN/FT/M/MM/CM/INCH/FEET) | **cable_box_rules** | Context cable |
-| Các loại khác | **smt_rules** | Tra package (0201, 0402…) → fallback `_default` |
+### Thanh trạng thái (Status Bar)
+Nằm ở dưới cùng của cửa sổ ứng dụng (nền màu vàng nhạt). Đây là nơi hiển thị trạng thái hiện tại: File đang mở, số lượng linh kiện không nhận dạng được (unknown), thông báo lỗi, trạng thái copy dữ liệu, hoặc thông báo lưu thành công.
 
 ---
 
-## 📚 **Edit Dictionary** – Cửa sổ từ điển viết tắt
-Mở bằng nút **📚 Edit Dictionary** (giữa ⚙ Edit Rules và 📥 Export). Mở toàn màn hình (maximized).
+## 4. 🛠 Các tính năng tương tác và Tùy biến dữ liệu
 
-### 6 Tab theo danh mục
-| Tab | JSON Section / Group | Cột: Keyword → Maps To |
-|-----|----------------------|------------------------|
-| 🔲 SMT / PCBA | `keyword_to_type / SMT_COMPONENTS` | Từ viết tắt → Loại linh kiện (RESISTOR, CAPACITOR, IC…) |
-| 🔌 Cable / Box | `keyword_to_type / CABLE_BOX_COMPONENTS` | Từ viết tắt → Loại (WIRE, CONNECTOR, TERMINAL…) |
-| 📦 Misc / Added | `keyword_to_type / MISC_ADDED` | Các từ thêm lẻ (CE-*, SCR, CBL, CE-WIRE…) |
-| 📐 Package | `package_keywords` | Từ khóa mô tả → Nhóm package (0805, SOD, SOT, QFN…) |
-| 📏 Units | `unit_aliases` | Đơn vị file BOM → Canonical (**PCS** hoặc **LENGTH**) |
-| 📋 Headers | `column_header_aliases` | Alias tựa cột → Role (description_col, part_type_col, quantity_col, unit_col, partnumber_col, mpn_col, internal_pn_col) |
+Từ nhỏ đến lớn, bạn có rất nhiều công cụ để tinh chỉnh dữ liệu trực tiếp trên bảng hiển thị:
 
-### Chỉnh sửa
-- Double-click ô **Keyword** → sửa tên (check trùng trong tab)
-- Double-click ô **Maps To** → chọn từ **dropdown** (danh sách loại từ rule active / PCS-LENGTH / 7 role chuẩn) – state normal cho phép gõ tùy ý
-- **＋ Add Row** – thêm dòng mới (mặc định: OTHER_SPECIAL / PCS / description_col)
-- **🗑 Delete Row** – xóa dòng đang chọn (bật khi chọn dòng)
-- **🔍 Filter** – lọc realtime theo keyword hoặc maps-to
-- **Versioning** – tương tự Edit Rules: lưu bản mới, dropdown chọn phiên bản, 🗑 xóa bản (trừ Original)
+### 4.1. Tìm kiếm và Lọc (Filter & Search)
+- **Ô Filter (Tìm kiếm văn bản)**: Nhập từ khóa (tên, thông số, mô tả...). Bảng sẽ lọc trực tiếp (real-time) ra các dòng có chứa từ khóa trong cột *Description* hoặc *Part Type*.
+- **Dropdown Attrition**: Bấm vào đây để lọc các linh kiện theo một % hao hụt cụ thể, hoặc lọc ra những linh kiện chưa nhận diện được (`Unknown`).
 
-> Sau Save / chuyển phiên bản: `attrition_engine` & `bom_reader` reload tự động – lần **Process** sau dùng từ điển mới.
+### 4.2. Sắp xếp (Sorting)
+Bạn có thể sắp xếp tăng/giảm dần (A-Z, Z-A) bằng cách **Click trực tiếp vào tiêu đề của bất kỳ cột nào**. Click lần nữa để đảo ngược chiều sắp xếp.
 
----
+### 4.3. Chọn cột hiển thị Mã linh kiện (MFR P/N & Internal P/N)
+Hai cột **MFR P/N** và **Internal P/N** có biểu tượng **▼** cạnh tiêu đề.
+- **Click vào tiêu đề có biểu tượng ▼**, một menu thả xuống sẽ hiện ra liệt kê tất cả các tên cột có trong file BOM gốc của bạn.
+- Bạn có thể chủ động chọn cột dữ liệu gốc bạn muốn ánh xạ vào, nội dung cột sẽ thay đổi tức thì. 
+- Chọn **Auto (tự động detect)** để đưa ứng dụng về chế độ tự tìm cột tối ưu nhất.
 
-## 🔢 Logic số lượng (Qty / Final Qty)
-| Đơn vị | Final Qty | Ví dụ |
-|--------|-----------|-------|
-| **EA, PCS, PC, EACH, NOS, CÁI…** (đếm) | `ceil(BOM Qty × (1 + Attrition%))` | 100 × 1.05 → **105** ; 1.2 → **2** |
-| **IN, FT, M, MM, CM, MTR, INCH, FEET…** (độ dài) | `round(BOM Qty × (1 + Attrition%), 3)` | 75 m × 1.05 → **78.75 m** |
+### 4.4. Chỉnh sửa thủ công Loại linh kiện (Inline Edit Part Type)
+Nếu ứng dụng nhận dạng sai một linh kiện, bạn có thể sửa trực tiếp trên bảng:
+1. **Double-click** (nhấp đúp) vào ô **Part Type** của dòng linh kiện đó.
+2. Một hộp thoại tìm kiếm (Searchable Combobox) sẽ xuất hiện. 
+3. Bạn có thể gõ từ khóa (ví dụ: `Capacitor`) và dùng phím mũi tên để chọn loại/kích thước linh kiện đúng. 
+4. Ngay khi bấm **Enter**, hệ thống sẽ tự động tính toán lại % hao hụt cho dòng đó dựa theo loại bạn vừa gán.
 
-> Cột **Qty** trên lưới = số lượng gốc từ file BOM (chưa cộng attrition). Cột **Final Qty** chỉ xuất ra file Excel.
+### 4.5. Sao chép dữ liệu (Copy Data)
+- **Sao chép nhiều dòng**: Chọn một hoặc nhiều dòng (giữ `Shift` hoặc `Ctrl`), sau đó bấm `Ctrl + C`. Dữ liệu sẽ được copy dưới định dạng cách nhau bởi dấu Tab, có thể Paste trực tiếp vào file Excel cực kỳ thẳng hàng.
+- **Sao chép 1 ô (Cell)**: **Click chuột phải** vào bất kỳ ô nào bạn muốn, chọn lệnh **Copy...** hiện ra để sao chép duy nhất nội dung của ô đó.
 
 ---
 
-## 🏷️ MFR P/N & Internal P/N – Tự nhận diện cột + Chọn thủ công
-Hệ thống quét header bằng **chuẩn hóa** (bỏ dấu chấm, gạch, khoảng trắng, không phân biệt hoa/thường) → match alias:
+## 5. 📥 Xuất dữ liệu (Export)
 
-| Role | Ví dụ alias nhận diện |
-|------|-----------------------|
-| **MFR P/N** | `MPN`, `MFR P/N`, `MFR PART NUMBER`, `MFG P/N`, `MANUFACTURER P/N`, `AMAT PART NUMBER`, `VENDOR P/N`, `SUPPLIER PN`… |
-| **Internal P/N** | `ITEM NO`, `INTERNAL P/N`, `IPN`, `INTEL IPN`, `STOCKCODE`, `HOUSE P/N`, `OWN P/N`, `FAB9 P/N`, `PART NUMBER` (generic)… |
-| **Generic Part Number** (fallback) | `PART NUMBER`, `P/N`, `PN`, `ITEM NUMBER`, `NUMBER`, `STOCKCODE`… |
+Tính năng **Export** tuân theo nguyên tắc "Thấy gì xuất nấy" (WYSIWYG). File Excel sinh ra sẽ phản ánh **chính xác 7 cột bạn đang thấy trên màn hình**, kể cả khi bạn đã dùng Filter, đổi cột P/N, hay sửa Part Type.
 
-> - Nếu file có **cả 2 cột riêng** → MFR P/N, Internal P/N hiển thị tách biệt
-> - Nếu chỉ có **cột generic** (`Part Number` / `Item No`…) → dùng cho **cả 2 cột** (thường là mã nội bộ = MFR code)
+Thứ tự xuất sẽ là: `#`, `Part Type`, `Description (original)`, `MFR P/N`, `Internal P/N`, `Qty`, `Attrition %`.
 
-### Dropdown chọn cột thủ công (thanh filter)
-- Sau **Process**, 2 dropdown **Internal P/N Col** & **MFR P/N Col** tự nạp **tất cả tên cột thực tế** từ header file BOM
-- Mặc định chọn cột auto-detect (`internal_pn_col`, `mpn_col`, fallback `partnumber_col`)
-- Chọn cột bất kỳ → cột P/N trên bảng cập nhật ngay giá trị từ cột đó
-- Chọn **Auto** → tự re-detect toàn bộ (re-process)
+*(Chú ý: Nếu bạn có tùy chọn đổi cột MFR P/N hay Internal P/N trên giao diện, tên tiêu đề xuất ra file Excel cũng sẽ tự động mang tên cột bạn đã chọn để đảm bảo tính đồng bộ).*
 
 ---
 
-## 📋 Thanh trạng thái (Status Bar)
-- Nền **vàng nhạt** (#fef9c3), chữ **đậm cỡ 15** – dễ chú ý
-- Hiển thị: sẵn sàng / đang đọc / lỗi / số dòng copy / export thành công / rule/dictionary updated…
-- Màu chữ đổi theo ngữ cảnh: xanh (thành công), cam (chưa lưu), đỏ (lỗi), đen (thông thường)
+## 6. ⚙️ Quản lý Quy tắc Hao hụt (Edit Rules)
+
+Nút **Edit Rules** sẽ mở một cửa sổ mới giúp bạn thay đổi tỷ lệ % hao hụt cho từng nhóm linh kiện.
+
+- **2 Tab phân chia logic**: 
+  - **SMT / PCBA**: Chứa quy tắc hao hụt cho các linh kiện điện tử dán/cắm (thường được xác định thông qua cả Component Type và Package).
+  - **Cable / Box**: Chứa quy tắc hao hụt cho nhóm dây cáp, lắp ráp cơ khí, vỏ hộp, vỏ gen...
+- **Sửa dữ liệu**: Bạn có thể click đúp vào các cột `Component Type`, `Package / Size` hoặc `Attrition %` để sửa trực tiếp thông qua các Dropdown tiện lợi.
+- **Thêm/Xóa dòng**: Hỗ trợ nút `+ Add Row` để định nghĩa loại linh kiện mới.
+- **Lưu phiên bản (Versioning)**: Khi bấm `Save as New Version`, hệ thống **không ghi đè** file gốc mà sẽ tạo ra một file cấu hình mới đánh dấu bằng thời gian. Bạn có thể tự do rollback lại các phiên bản cũ qua menu thả xuống ở góc trên.
 
 ---
 
-## 📁 Quản lý phiên bản (Versioning) – Tổng quan
-| Loại | File gốc | File version | Con trỏ active |
-|------|----------|--------------|----------------|
-| Attrition Rules | `attrition_rules.json` | `attrition_rules_v<YYYY-MM-DD_HHMMSS>.json` | `_active_rules.json` |
-| Keyword Dictionary | `component_dictionary.json` | `component_dictionary_v<YYYY-MM-DD_HHMMSS>.json` | `_active_dictionary.json` |
+## 7. 📚 Quản lý Từ điển (Edit Dictionary)
 
-- **Không bao giờ ghi đè file gốc** – an toàn rollback
-- Dropdown trong từng Editor liệt kê: `Original (default)` → `v2026-08-25 14:30:15`…
-- Nút 🗑 chỉ bật ở bản version, xóa xong refresh dropdown, fallback về Original nếu cần
-- Thư mục chứa file version + pointer đã được thêm vào `.gitignore`
+Nút **Edit Dictionary** chứa bộ não dịch thuật của ứng dụng, giúp biến những đoạn chuỗi viết tắt (như `RES`, `CBL`, `0805`, `EA`) thành thuật ngữ chuẩn. Có 6 Tab quan trọng:
 
----
+1. **SMT / PCBA (Keyword)**: Gắn từ viết tắt với linh kiện bảng mạch (VD: `RES` -> `RESISTOR`).
+2. **Cable / Box (Keyword)**: Gắn từ viết tắt với linh kiện cáp/cơ khí (VD: `CBL` -> `WIRE`).
+3. **Misc / Added**: Các từ vựng chung.
+4. **Package**: Gắn chuỗi thông số với chuẩn kích thước đóng gói (VD: `0805SMD` -> `0805`).
+5. **Units**: Xác định xem một loại đơn vị tính là dạng đếm số lượng (PCS) hay dạng đo chiều dài (LENGTH). Tùy vào loại đơn vị mà cách tính toán làm tròn (Rounding logic) hao hụt sẽ khác nhau.
+6. **Headers**: Định nghĩa các từ khóa mà hệ thống dùng để đi "săn" tên cột trong file BOM Excel (ví dụ thấy cột có chữ `MFG P/N`, nó sẽ hiểu đó là `mfr_pn_col`).
 
-## 📦 Cấu trúc file quan trọng
-```
-bom_processor/
-├── main.py                   # Entry point
-├── app.py                    # UI chính, table, process, export, copy, status, P/N column selector
-├── bom_reader.py             # Đọc Excel, detect header (chuẩn hóa), trả dict rows + header values
-├── attrition_engine.py       # Phân loại, tra attrition, gradient màu, reload hot
-├── attrition_editor.py       # Editor Attrition Rules (versioned, 3 cột dropdown)
-├── dictionary_editor.py      # Editor Keyword Dictionary (versioned, 6 tab, dropdown Maps To)
-├── file_versions.py          # Helper chung versioning (load/save/list/delete)
-├── component_dictionary.json # Từ điển gốc (keyword, package, unit, header alias)
-├── attrition_rules.json      # Rule attrition gốc (smt + cable_box + assembly_context)
-├── run_app.bat               # Khởi chạy nhanh Windows
-└── README.md                 # Tài liệu này
-```
+Tất cả các thay đổi trong từ điển cũng hỗ trợ **Lưu phiên bản (Versioning)** y hệt như Edit Rules, giữ cho hệ thống của bạn an toàn trước những thay đổi sai lầm.
 
 ---
 
-## 🛠️ Mở rộng / Tuỳ biến
-- **Thêm alias cột mới**: sửa `component_dictionary.json → column_header_aliases` → restart app
-- **Thêm loại linh kiện mới**:  
-  1. Thêm keyword vào `keyword_to_type` (tab SMT/Cable/Misc)  
-  2. Thêm entry vào `attrition_rules.json` (smt_rules / cable_box_rules) với `_default` + package con nếu cần  
-  3. Save version → reload
-- **Sửa màu gradient**: chỉnh `_ATT_ANCHORS` trong `app.py` (list tuple % + RGB)
-- **Thêm đơn vị độ dài**: bổ sung vào `unit_aliases` (→ LENGTH) và `assembly_context.length_units` trong rule
-- **Thêm từ khóa viết tắt**: bổ sung vào `keyword_to_type` (SOM→IC, DIO/ZNR→DIODE, ICS→IC…)
+## 8. ⚠️ Xử lý sự cố (Troubleshooting)
+
+- **Lỗi không đọc được file Excel**: Đảm bảo file chưa bị khóa bởi phần mềm khác. Ứng dụng đã được tích hợp bộ lọc chặn lỗi định dạng (`styles.xml`) từ các phần mềm ERP xuất ra, nên có thể đọc hầu hết các chuẩn Excel 2007 trở lên.
+- **Không có dữ liệu hiện ra sau khi Process**: Đảm bảo rằng file Excel gốc của bạn có chứa cột mang tên "Description" hoặc các biến thể của nó ở trong vòng 30 dòng đầu tiên.
+- **Internal P/N hoặc MFR P/N bị trống**: Bạn có thể dùng tính năng Click vào tiêu đề (biểu tượng ▼) để chỉ định ép buộc cột dữ liệu.
+- **Linh kiện ra chữ "???" hoặc % hao hụt là 0**: Ứng dụng không tìm thấy từ khóa trong Từ Điển. Hãy dùng nút `Edit Dictionary` để bổ sung từ viết tắt đang có trong Description của linh kiện đó. Hoặc nhấp đúp vào ô Part Type để chỉ định thủ công!
 
 ---
-
-## ⚠️ Lưu ý & Troubleshooting
-- **File Excel có style lỗi** → đã có hotfix bỏ qua `styles.xml` (openpyxl `apply_stylesheet = None`)
-- **Không nhận header** → kiểm tra dòng 1–30 có tên cột khớp alias không; mở `component_dictionary.json` bổ sung alias
-- **Attrition % sai** → kiểm tra: Part Type / Description có từ khóa đúng không? Package detect đúng không? Đơn vị có bị hiểu nhầm (EA vs M) không?
-- **Internal P/N trống** → file có thể chỉ có 1 cột Part Number chung → cả 2 cột dùng chung giá trị đó; dùng dropdown chọn cột đúng
-- **Copy không dán được** → đảm bảo chọn dòng (hoặc ô) trước khi `Ctrl+C` / right-click
-- **Đổi cột P/N không cập nhật** → đảm bảo đã Process, header đúng; nếu vẫn lỗi chọn *Auto* để re-process
-
----
-
-## 📜 Phiên bản
-| Phiên bản | Ngày | Thay đổi chính |
-|-----------|------|----------------|
-| **v1.5**  | 2026-08-27 | Dropdown chọn cột P/N thủ công (Internal/MFR); Fix bug đổi cột P/N; 3 cột Editor Rule dropdown (Component Type/Package/Attrition%); Maps To dropdown Dictionary Editor; Add Row cả 2 Editor; Mở toàn màn hình mặc định; Thêm từ khóa SOM/ICS→IC, DIO/ZNR→DIODE; Cả 3 cửa sổ maximized |
-| v1.2      | 2026-08-26 | Gradient màu Attrition động; Editor Dictionary 6-tab versioned; Copy Ctrl+C/Right-click; MFR/Internal P/N detection nâng cấp; Status bar nổi bật; bỏ legend % cố định |
-| v1.1      | 2026-08-24 | Editor Rule versioned + dropdown + delete; Internal P/N column; Qty column; rounding logic length vs PCS |
-| v1.0      | 2026-08-?? | Release nội bộ: process, inline edit Part Type, export WYSIWYG, assembly 0% attrition |
-
----
-
-*Phát triển nội bộ – Hỗ trợ chuẩn hóa & tự động hóa quy trình xử lý dữ liệu BOM – Fab9 Engineering*
+*BOM Processor v1.5 - Phát triển nội bộ cho Fab9 Engineering.*

@@ -16,13 +16,175 @@ Saving ALWAYS creates a new version file (component_dictionary_v*.json).
 The original component_dictionary.json is never modified.
 """
 
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 import customtkinter as ctk
+import re
 
 from file_versions import (
     list_files, display_name, active_filename, load_active, save_new_version,
 )
+
+_BASE_DIR_NAME = "component_dictionary.json"
+
+# ── Searchable Combobox Helper ──────────────────────────────────────────────────
+class SearchableCombobox(tk.Entry):
+    """
+    Autocomplete entry that keeps keyboard focus while showing suggestions.
+    """
+    def __init__(self, master=None, **kwargs):
+        values = kwargs.pop("values", [])
+        kwargs.pop("state", None)
+        super().__init__(master, **kwargs)
+        self._all_values = list(values)
+        self._filtered_values = list(values)
+        self._filter_after_id = None
+        self._popup = None
+        self._listbox = None
+        self.bind("<KeyRelease>", self._on_keyrelease)
+        self.bind("<FocusIn>", self._on_focus_in)
+        self.bind("<FocusOut>", self._on_focus_out)
+        self.bind("<Down>", self._on_down)
+        self.bind("<Up>", self._on_up)
+
+    def _on_keyrelease(self, event):
+        if event.keysym in {"Up", "Down", "Left", "Right", "Return", "Escape", "Tab"}:
+            return
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+        self._filter_after_id = self.after(80, self._filter)
+
+    def _filter(self):
+        typed = self.get().strip().lower()
+        if not typed:
+            self._filtered_values = self._all_values
+        else:
+            self._filtered_values = [
+                v for v in self._all_values if typed in str(v).lower()
+            ]
+        self._show_popup()
+
+    def _show_popup(self):
+        if not self._filtered_values:
+            self._hide_popup()
+            return
+        if self._popup is None or not self._popup.winfo_exists():
+            self._popup = tk.Toplevel(self)
+            self._popup.overrideredirect(True)
+            self._popup.transient(self.winfo_toplevel())
+            self._listbox = tk.Listbox(
+                self._popup,
+                height=min(8, len(self._filtered_values)),
+                font=self.cget("font"),
+                bg="#ffffff",
+                fg="#18181b",
+                selectbackground="#2563eb",
+                selectforeground="#ffffff",
+                activestyle="none",
+                exportselection=False,
+            )
+            self._listbox.pack(fill="both", expand=True)
+            self._listbox.bind("<ButtonRelease-1>", self._select_from_popup)
+            self._listbox.bind("<Return>", self._select_from_popup)
+            self._listbox.bind("<Escape>", lambda e: self._hide_popup())
+        self._listbox.delete(0, "end")
+        for value in self._filtered_values:
+            self._listbox.insert("end", value)
+        self._listbox.configure(height=min(8, len(self._filtered_values)))
+        self._popup.update_idletasks()
+        x            = self.winfo_rootx()
+        entry_bottom = self.winfo_rooty() + self.winfo_height()
+        entry_top    = self.winfo_rooty()
+        width        = max(self.winfo_width(), 180)
+        popup_h      = self._listbox.winfo_reqheight()
+        screen_h     = self.winfo_screenheight()
+        # Flip upward when there is not enough space below the widget
+        if entry_bottom + popup_h > screen_h and entry_top - popup_h >= 0:
+            y = entry_top - popup_h
+        else:
+            y = entry_bottom
+        self._popup.geometry(f"{width}x{popup_h}+{x}+{y}")
+        self._popup.deiconify()
+        self._take_focus()
+
+    def _take_focus(self):
+        def apply_focus():
+            if not self.winfo_exists():
+                return
+            try:
+                self.focus_force()
+                self.icursor("end")
+            except Exception:
+                pass
+        self.after_idle(apply_focus)
+
+    def _hide_popup(self):
+        if self._popup is not None and self._popup.winfo_exists():
+            self._popup.destroy()
+        self._popup = None
+        self._listbox = None
+
+    def _select_from_popup(self, event=None):
+        if self._listbox is None:
+            return "break"
+        selection = self._listbox.curselection()
+        if not selection:
+            return "break"
+        self.set(self._listbox.get(selection[0]))
+        self._hide_popup()
+        self.event_generate("<<ComboboxSelected>>")
+        return "break"
+
+    def get(self):
+        if self._listbox is not None:
+            selection = self._listbox.curselection()
+            if selection:
+                return self._listbox.get(selection[0])
+        return super().get()
+
+    def _on_focus_in(self, event):
+        if not self.get():
+            self._filtered_values = self._all_values
+            self._show_popup()
+
+    def _on_focus_out(self, event):
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+
+    def _on_down(self, event=None):
+        if self._popup is None or not self._popup.winfo_exists():
+            self._filter()
+        if self._listbox is not None and self._listbox.size():
+            current = self._listbox.curselection()
+            idx = current[0] + 1 if current and current[0] + 1 < self._listbox.size() else 0
+            self._listbox.selection_clear(0, "end")
+            self._listbox.selection_set(idx)
+            self._listbox.activate(idx)
+        return "break"
+
+    def _on_up(self, event=None):
+        if self._listbox is not None and self._listbox.size():
+            current = self._listbox.curselection()
+            idx = current[0] - 1 if current and current[0] > 0 else self._listbox.size() - 1
+            self._listbox.selection_clear(0, "end")
+            self._listbox.selection_set(idx)
+            self._listbox.activate(idx)
+        return "break"
+
+    def set_values(self, values):
+        self._all_values = list(values)
+        self._filtered_values = list(values)
+
+    def set(self, value):
+        self.delete(0, "end")
+        self.insert(0, value)
+        self.icursor("end")
+
+    def destroy(self):
+        self._hide_popup()
+        super().destroy()
+
 
 _BASE_DIR_NAME = "component_dictionary.json"
 
@@ -77,7 +239,17 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
         self.minsize(700, 480)
         self.configure(fg_color=CLR_BG)
         self.after(0, lambda: self.state("zoomed") if hasattr(self, "state") else None)
-        self.grab_set()
+        self.grab_release()
+        self.attributes("-topmost", True)
+        self.lift()
+
+        # Custom icon
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+        if os.path.exists(_icon_path):
+            try:
+                self.after(200, lambda: self.iconbitmap(_icon_path))
+            except Exception:
+                pass
 
         self._on_save_callback = on_save_callback
         self._dict: dict = load_active(_BASE_DIR_NAME)
@@ -350,15 +522,26 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
 
         choices = self._target_choices() if col == "#2" else None
         if choices:
-            widget = ttk.Combobox(self.tree, values=choices, state="normal",
-                                  font=("Segoe UI", 12), justify="left")
+            widget = SearchableCombobox(self.tree, values=choices, state="normal",
+                                        font=("Segoe UI", 12), justify="left")
             widget.set(current_val)
             widget.place(x=x, y=y, width=w, height=h)
+            widget._take_focus()
             widget.bind("<<ComboboxSelected>>", lambda e: self._commit_edit())
             widget.bind("<Return>", self._commit_edit)
             widget.bind("<KP_Enter>", self._commit_edit)
             widget.bind("<Escape>", self._cancel_edit)
-            widget.bind("<FocusOut>", self._commit_edit)
+            def on_focus_out(e):
+                def maybe_cancel():
+                    try:
+                        if "popdown" in self.tk.eval("focus"):
+                            return
+                    except Exception:
+                        pass
+                    self._cancel_edit()
+                widget.after(150, maybe_cancel)
+
+            widget.bind("<FocusOut>", on_focus_out)
             widget.focus_set()
         else:
             var = tk.StringVar(value=current_val)
@@ -383,6 +566,10 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
     def _commit_edit(self, event=None):
         if self._edit_widget is None:
             return
+        if event:
+            try:
+                if 'popdown' in self.tk.eval('focus'): return
+            except Exception: pass
         row_id = self._edit_row_id
         col = self._edit_col
         new_val = str(self._edit_widget.get()).strip()
@@ -629,7 +816,7 @@ class DictionaryEditorWindow(ctk.CTkToplevel):
 
     # ── Close guard ───────────────────────────────────────────────────────────
     def destroy(self):
-        if self._dirty:
+        if getattr(self, "_dirty", False):
             if not messagebox.askyesno(
                 "Unsaved Changes",
                 "Bạn có thay đổi chưa lưu.\nĐóng mà không lưu?",

@@ -17,10 +17,170 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 import customtkinter as ctk
 import openpyxl
+import re
 
 from bom_reader import read_bom_file, get_available_sheets
 from attrition_engine import analyze_row, apply_attrition
 from attrition_editor import AttritionEditorWindow
+
+# ── Searchable Combobox Helper ──────────────────────────────────────────────────
+class SearchableCombobox(tk.Entry):
+    """
+    Autocomplete entry that keeps keyboard focus while showing suggestions.
+    Native ttk.Combobox popdowns take focus on Windows, which hides the caret.
+    """
+    def __init__(self, master=None, **kwargs):
+        values = kwargs.pop("values", [])
+        kwargs.pop("state", None)
+        super().__init__(master, **kwargs)
+        self._all_values = list(values)
+        self._filtered_values = list(values)
+        self._filter_after_id = None
+        self._popup = None
+        self._listbox = None
+        self.bind("<KeyRelease>", self._on_keyrelease)
+        self.bind("<FocusIn>", self._on_focus_in)
+        self.bind("<FocusOut>", self._on_focus_out)
+        self.bind("<Down>", self._on_down)
+        self.bind("<Up>", self._on_up)
+
+    def _on_keyrelease(self, event):
+        if event.keysym in {"Up", "Down", "Left", "Right", "Return", "Escape", "Tab"}:
+            return
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+        self._filter_after_id = self.after(80, self._filter)
+
+    def _filter(self):
+        typed = self.get().strip().lower()
+        if not typed:
+            self._filtered_values = self._all_values
+        else:
+            self._filtered_values = [
+                v for v in self._all_values if typed in str(v).lower()
+            ]
+        self._show_popup()
+
+    def _show_popup(self):
+        if not self._filtered_values:
+            self._hide_popup()
+            return
+        if self._popup is None or not self._popup.winfo_exists():
+            self._popup = tk.Toplevel(self)
+            self._popup.overrideredirect(True)
+            self._popup.transient(self.winfo_toplevel())
+            self._listbox = tk.Listbox(
+                self._popup,
+                height=min(8, len(self._filtered_values)),
+                font=self.cget("font"),
+                bg="#ffffff",
+                fg="#18181b",
+                selectbackground="#2563eb",
+                selectforeground="#ffffff",
+                activestyle="none",
+                exportselection=False,
+            )
+            self._listbox.pack(fill="both", expand=True)
+            self._listbox.bind("<ButtonRelease-1>", self._select_from_popup)
+            self._listbox.bind("<Return>", self._select_from_popup)
+            self._listbox.bind("<Escape>", lambda e: self._hide_popup())
+        self._listbox.delete(0, "end")
+        for value in self._filtered_values:
+            self._listbox.insert("end", value)
+        self._listbox.configure(height=min(8, len(self._filtered_values)))
+        self._popup.update_idletasks()
+        x            = self.winfo_rootx()
+        entry_bottom = self.winfo_rooty() + self.winfo_height()
+        entry_top    = self.winfo_rooty()
+        width        = max(self.winfo_width(), 180)
+        popup_h      = self._listbox.winfo_reqheight()
+        screen_h     = self.winfo_screenheight()
+        # Flip upward when there is not enough space below the widget
+        if entry_bottom + popup_h > screen_h and entry_top - popup_h >= 0:
+            y = entry_top - popup_h
+        else:
+            y = entry_bottom
+        self._popup.geometry(f"{width}x{popup_h}+{x}+{y}")
+        self._popup.deiconify()
+        self._take_focus()
+
+    def _take_focus(self):
+        def apply_focus():
+            if not self.winfo_exists():
+                return
+            try:
+                self.focus_force()
+                self.icursor("end")
+            except Exception:
+                pass
+        self.after_idle(apply_focus)
+
+    def _hide_popup(self):
+        if self._popup is not None and self._popup.winfo_exists():
+            self._popup.destroy()
+        self._popup = None
+        self._listbox = None
+
+    def _select_from_popup(self, event=None):
+        if self._listbox is None:
+            return "break"
+        selection = self._listbox.curselection()
+        if not selection:
+            return "break"
+        self.set(self._listbox.get(selection[0]))
+        self._hide_popup()
+        self.event_generate("<<ComboboxSelected>>")
+        return "break"
+
+    def get(self):
+        if self._listbox is not None:
+            selection = self._listbox.curselection()
+            if selection:
+                return self._listbox.get(selection[0])
+        return super().get()
+
+    def _on_focus_in(self, event):
+        if not self.get():
+            self._filtered_values = self._all_values
+            self._show_popup()
+
+    def _on_focus_out(self, event):
+        if self._filter_after_id:
+            self.after_cancel(self._filter_after_id)
+
+    def _on_down(self, event=None):
+        if self._popup is None or not self._popup.winfo_exists():
+            self._filter()
+        if self._listbox is not None and self._listbox.size():
+            current = self._listbox.curselection()
+            idx = current[0] + 1 if current and current[0] + 1 < self._listbox.size() else 0
+            self._listbox.selection_clear(0, "end")
+            self._listbox.selection_set(idx)
+            self._listbox.activate(idx)
+        return "break"
+
+    def _on_up(self, event=None):
+        if self._listbox is not None and self._listbox.size():
+            current = self._listbox.curselection()
+            idx = current[0] - 1 if current and current[0] > 0 else self._listbox.size() - 1
+            self._listbox.selection_clear(0, "end")
+            self._listbox.selection_set(idx)
+            self._listbox.activate(idx)
+        return "break"
+
+    def set_values(self, values):
+        """Update the complete list of values."""
+        self._all_values = list(values)
+        self._filtered_values = list(values)
+
+    def set(self, value):
+        self.delete(0, "end")
+        self.insert(0, value)
+        self.icursor("end")
+
+    def destroy(self):
+        self._hide_popup()
+        super().destroy()
 
 # ── Theme ──────────────────────────────────────────────────────────────────────
 ctk.set_appearance_mode("light")
@@ -92,6 +252,43 @@ FRIENDLY_TYPES = {
     "Unknown (???)": "UNKNOWN"
 }
 
+
+def _build_friendly_with_packages() -> list[str]:
+    """
+    Build dropdown options with package variants from active attrition rules.
+    Returns list like: ["Resistor [0201]", "Resistor [0402]", ..., "Capacitor [0402]", ...]
+    Falls back to FRIENDLY_TYPES if rules not available.
+    """
+    try:
+        from attrition_engine import RULES
+        smt = RULES.get("smt_rules", {})
+        cable = RULES.get("cable_box_rules", {})
+    except Exception:
+        return list(FRIENDLY_TYPES.keys())
+
+    # Map canonical type -> list of packages (excluding _default, _comment)
+    pkg_map: dict[str, list[str]] = {}
+    for table in (smt, cable):
+        for comp_type, entry in table.items():
+            if comp_type.startswith("_"):
+                continue
+            if isinstance(entry, dict):
+                pkgs = [p for p in entry.keys() if not p.startswith("_")]
+                if pkgs:
+                    pkg_map.setdefault(comp_type, []).extend(pkgs)
+
+    # Build options: friendly_name [package] for each package
+    options = []
+    for friendly, canon in FRIENDLY_TYPES.items():
+        pkgs = sorted(set(pkg_map.get(canon, [])))
+        if pkgs:
+            for pkg in pkgs:
+                options.append(f"{friendly} [{pkg}]")
+        else:
+            options.append(friendly)
+
+    return options
+
 class BOMApp(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -102,11 +299,24 @@ class BOMApp(ctk.CTk):
         self.configure(fg_color=CLR_BG)
         self.after(0, lambda: self.state("zoomed") if hasattr(self, "state") else None)
 
+        # Custom icon
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon.ico")
+        if os.path.exists(_icon_path):
+            try:
+                self.iconbitmap(_icon_path)
+            except Exception:
+                pass
+
         self._filepath: str | None = None
         self._all_rows: list[dict] = []   # processed result rows
         self._filter_text: str = ""
         self._sort_col = None
         self._sort_reverse = False
+
+        # P/N column selection state (for header dropdown menus)
+        self.int_pn_col_var = tk.StringVar(value="Auto")
+        self.mfr_pn_col_var = tk.StringVar(value="Auto")
+        self._active_cell_editor = None
 
         self._build_ui()
 
@@ -218,36 +428,6 @@ class BOMApp(ctk.CTk):
         )
         self.att_combo.pack(side="left", padx=4)
 
-        # Internal P/N column selector
-        ctk.CTkLabel(
-            bar, text="Internal P/N Col:", font=ctk.CTkFont(size=13), text_color=CLR_MUTED
-        ).pack(side="left", padx=(16, 4))
-        self.int_pn_col_var = tk.StringVar(value="Auto")
-        self.int_pn_col_combo = ctk.CTkComboBox(
-            bar,
-            values=["Auto"],
-            variable=self.int_pn_col_var,
-            width=160, height=28,
-            fg_color="#ffffff", border_color="#d4d4d8", text_color="#18181b",
-            command=self._on_int_pn_col_change,
-        )
-        self.int_pn_col_combo.pack(side="left", padx=4)
-
-        # MFR P/N column selector
-        ctk.CTkLabel(
-            bar, text="MFR P/N Col:", font=ctk.CTkFont(size=13), text_color=CLR_MUTED
-        ).pack(side="left", padx=(16, 4))
-        self.mfr_pn_col_var = tk.StringVar(value="Auto")
-        self.mfr_pn_col_combo = ctk.CTkComboBox(
-            bar,
-            values=["Auto"],
-            variable=self.mfr_pn_col_var,
-            width=160, height=28,
-            fg_color="#ffffff", border_color="#d4d4d8", text_color="#18181b",
-            command=self._on_mfr_pn_col_change,
-        )
-        self.mfr_pn_col_combo.pack(side="left", padx=4)
-
         # Row counter label (right)
         self.lbl_count = ctk.CTkLabel(
             bar, text="",
@@ -294,8 +474,8 @@ class BOMApp(ctk.CTk):
         self.tree.heading("no",          text="#",              anchor="center", command=lambda: self._sort_by("no"))
         self.tree.heading("part_type",   text="Part Type",      anchor="w", command=lambda: self._sort_by("part_type"))
         self.tree.heading("description", text="Description (original)", anchor="w", command=lambda: self._sort_by("description"))
-        self.tree.heading("mfr_pn",      text="MFR P/N",        anchor="w",     command=lambda: self._sort_by("mfr_pn"))
-        self.tree.heading("int_pn",      text="Internal P/N",   anchor="w",     command=lambda: self._sort_by("int_pn"))
+        self.tree.heading("mfr_pn",      text="MFR P/N  ▼",     anchor="w",     command=lambda: self._show_pn_column_menu("mfr_pn"))
+        self.tree.heading("int_pn",      text="Internal P/N  ▼", anchor="w",     command=lambda: self._show_pn_column_menu("int_pn"))
         self.tree.heading("qty",          text="Qty",            anchor="e",     command=lambda: self._sort_by("qty"))
         self.tree.heading("attrition",   text="Attrition %",    anchor="center", command=lambda: self._sort_by("attrition"))
 
@@ -342,7 +522,7 @@ class BOMApp(ctk.CTk):
     def _on_browse(self):
         path = filedialog.askopenfilename(
             title="Select BOM Excel File",
-            filetypes=[("Excel files", "*.xlsx *.xls"), ("All files", "*.*")]
+            filetypes=[("Excel files", "*.xlsx"), ("All files", "*.*")]
         )
         if not path:
             return
@@ -417,11 +597,17 @@ class BOMApp(ctk.CTk):
 
             results = []
             for r in rows:
+                manual_pkg = None
+                # Check if existing row has manual package (for re-process)
+                existing = next((ar for ar in self._all_rows if ar.get("_id") == len(results)), None)
+                if existing and existing.get("_manual_package"):
+                    manual_pkg = existing["_manual_package"]
                 analysis = analyze_row(
                     part_type=r["part_type"],
                     description=r["description"],
                     qty=r["quantity"],
                     unit=r["unit"],
+                    manual_package=manual_pkg,
                 )
                 results.append({
                     "_id": len(results),
@@ -447,8 +633,6 @@ class BOMApp(ctk.CTk):
     def _populate_table(self, results: list[dict], sheet: str, col_map: dict, header_values: list):
         # Store header values for column remapping
         self._header_values = header_values
-        # Populate column selector dropdowns
-        self._update_pn_column_combos(col_map, header_values)
 
         # Apply current filter
         self._render_rows(results)
@@ -507,11 +691,13 @@ class BOMApp(ctk.CTk):
             return
         # Re-run analysis on all raw rows
         for i, r in enumerate(self._raw_rows):
+            manual_pkg = self._all_rows[i].get("_manual_package") if i < len(self._all_rows) else None
             analysis = analyze_row(
                 part_type=r["part_type"],
                 description=r["description"],
                 qty=r["quantity"],
                 unit=r["unit"],
+                manual_package=manual_pkg,
             )
             self._all_rows[i].update({
                 "part_type_raw":  r["part_type"],
@@ -527,38 +713,163 @@ class BOMApp(ctk.CTk):
                 "internal_pn":    r.get("internal_pn"),
             })
 
-    def _update_pn_column_combos(self, col_map: dict, header_values: list):
-        """Build list of available columns for P/N selectors."""
-        if not header_values:
+    def _show_pn_column_menu(self, col_key: str):
+        """Show dropdown menu for P/N column selection at the column header."""
+        if not hasattr(self, "_header_values") or not self._header_values:
             return
-        # Use provided header values directly
-        headers = [str(v) if v is not None else f"Col_{i}" for i, v in enumerate(header_values)]
 
-        # Mark detected columns
+        headers = [str(v) if v is not None else f"Col_{i}" for i, v in enumerate(self._header_values)]
+
+        # Detect current column mapping
         detected = {}
-        for role, idx in col_map.items():
-            if idx < len(headers):
-                detected[role] = headers[idx]
+        if hasattr(self, "_col_map"):
+            for role, idx in self._col_map.items():
+                if idx < len(headers):
+                    detected[role] = headers[idx]
 
-        # Build display list: "Auto" + header names
-        options = ["Auto"] + headers
+        detected_roles = {
+            "mfr_pn": ("mpn_col", "partnumber_col"),
+            "int_pn": ("internal_pn_col", "partnumber_col"),
+        }.get(col_key, ())
 
-        # Update Internal P/N combo
-        self.int_pn_col_combo.configure(values=options)
-        # Set default: prefer internal_pn_col, then partnumber_col
-        default_int = detected.get("internal_pn_col") or detected.get("partnumber_col") or "Auto"
-        if default_int in options:
-            self.int_pn_col_var.set(default_int)
+        # Create dropdown menu
+        menu = tk.Menu(self, tearoff=0)
+        menu.configure(
+            bg="#ffffff", fg="#18181b",
+            activebackground="#16a34a", activeforeground="#ffffff",
+            font=("Segoe UI", 11), bd=1, relief="solid"
+        )
+
+        # Current selection
+        current_var = self.mfr_pn_col_var if col_key == "mfr_pn" else self.int_pn_col_var
+        current_val = current_var.get()
+
+        # Add "Auto" option
+        menu.add_command(
+            label="⟲  Auto (tự động detect)",
+            command=lambda: self._on_pn_col_menu_select(col_key, "Auto"),
+            font=("Segoe UI", 11, "bold" if current_val == "Auto" else "normal")
+        )
+        menu.add_command(
+            label="Sort A → Z",
+            command=lambda: self._sort_by(col_key, reverse=False),
+        )
+        menu.add_command(
+            label="Sort Z → A",
+            command=lambda: self._sort_by(col_key, reverse=True),
+        )
+        menu.add_separator()
+
+        # Add each header as option
+        for h_str in headers:
+            is_current = (h_str == current_val)
+            is_detected = any(detected.get(role) == h_str for role in detected_roles)
+            
+            label = f"  {h_str}"
+            if is_detected:
+                label += "  ✓ (auto-detect)"
+            if is_current:
+                label = "✓ " + label
+            
+            menu.add_command(
+                label=label,
+                command=lambda h=h_str: self._on_pn_col_menu_select(col_key, h),
+                font=("Segoe UI", 11, "bold" if is_current else "normal")
+            )
+
+        # Show menu at cursor position
+        try:
+            x = self.winfo_pointerx()
+            y = self.winfo_pointery()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
+
+    def _on_pn_col_menu_select(self, col_key: str, selected: str):
+        """Handle selection from P/N column dropdown menu."""
+        if col_key == "mfr_pn":
+            self.mfr_pn_col_var.set(selected)
+            self._on_mfr_pn_col_change(selected)
         else:
-            self.int_pn_col_var.set("Auto")
+            self.int_pn_col_var.set(selected)
+            self._on_int_pn_col_change(selected)
 
-        # Update MFR P/N combo
-        self.mfr_pn_col_combo.configure(values=options)
-        default_mfr = detected.get("mpn_col") or detected.get("partnumber_col") or "Auto"
-        if default_mfr in options:
-            self.mfr_pn_col_var.set(default_mfr)
-        else:
-            self.mfr_pn_col_var.set("Auto")
+    def _render_rows(self, results: list[dict] | None = None):
+        if results is None:
+            results = self._all_rows
+
+        ft = self.filter_var.get().strip().lower()
+        af = self.att_filter_var.get()
+
+        # First pass: collect visible rows + unique pct values
+        visible = []
+        pct_set: set[float] = set()
+        for r in results:
+            if ft and ft not in r["description"].lower() and ft not in r["part_type_full"].lower():
+                continue
+            if af == "Unknown":
+                if r["canonical_type"] != "UNKNOWN":
+                    continue
+            elif af != "All" and r["attrition_pct"] != af:
+                continue
+            visible.append(r)
+            if r["canonical_type"] != "UNKNOWN":
+                pct_set.add(round(r["attrition_rate"] * 100, 1))
+
+        # Configure a tag for each unique pct (gradient)
+        for pct in pct_set:
+            tag = f"att_{pct:.1f}"
+            if not self.tree.tag_has(tag):
+                self.tree.tag_configure(tag, foreground=_att_gradient_hex(pct))
+
+        self.tree.delete(*self.tree.get_children())
+        self._visible_rows = []
+        for idx, r in enumerate(visible, start=1):
+            if r["canonical_type"] == "UNKNOWN":
+                tag = "unknown"
+            else:
+                pct = round(r["attrition_rate"] * 100, 1)
+                tag = f"att_{pct:.1f}"
+            tags = (tag,) if idx % 2 == 0 else (tag, "row_odd")
+
+            # Part Type display
+            if r.get("canonical_type") == "UNKNOWN":
+                pt_display = "???"
+            elif r.get("canonical_type") == "OTHER_SPECIAL" and r.get("part_type_raw"):
+                pt_display = str(r["part_type_raw"]).strip().title()
+            else:
+                pt_display = r["part_type_full"]
+
+            qty_val = float(r.get("qty_bom", 0) or 0)
+            qty_display = str(int(qty_val)) if qty_val == int(qty_val) else f"{qty_val:g}"
+
+            self.tree.insert(
+                "", "end", iid=str(r["_id"]),
+                values=(idx, pt_display, r["description"],
+                        r.get("mpn") or "", r.get("internal_pn") or "",
+                        qty_display, r["attrition_pct"]),
+                tags=tags,
+            )
+            self._visible_rows.append(r)
+
+        total = len(self._all_rows)
+        shown = len(self._visible_rows)
+        self.lbl_count.configure(text=f"Showing {shown} / {total} rows")
+
+        # Update attrition filter dropdown with actual rates present
+        if hasattr(self, "att_combo"):
+            rate_vals = ["All", "Unknown"] + sorted(f"{p:.1f}%" for p in pct_set)
+            self.att_combo.configure(values=rate_vals)
+
+    def _rate_tag(self, rate: float, ctype: str) -> str:
+        if ctype == "UNKNOWN":
+            return "unknown"
+        pct = round(rate * 100, 1)
+        return f"att_{pct:.1f}"
+
+    def _on_filter_change(self, *_):
+        self._render_rows()
+
 
     def _render_rows(self, results: list[dict] | None = None):
         if results is None:
@@ -652,8 +963,10 @@ class BOMApp(ctk.CTk):
         ctk.CTkButton(win, text="OK", command=win.destroy,
                       width=80).pack(pady=16)
 
-    def _sort_by(self, col):
-        if self._sort_col == col:
+    def _sort_by(self, col, reverse: bool | None = None):
+        if reverse is not None:
+            self._sort_reverse = reverse
+        elif self._sort_col == col:
             self._sort_reverse = not self._sort_reverse
         else:
             self._sort_reverse = False
@@ -680,6 +993,9 @@ class BOMApp(ctk.CTk):
     def _on_export(self):
         if not hasattr(self, "_visible_rows") or not self._visible_rows:
             return
+        from tkinter import filedialog
+        import openpyxl
+        import os
         path = filedialog.asksaveasfilename(
             title="Export Excel",
             defaultextension=".xlsx",
@@ -692,33 +1008,37 @@ class BOMApp(ctk.CTk):
         ws = wb.active
         ws.title = "BOM Export"
         
-        headers = ["Row", "Original Part Type", "Canonical Type", "Description",
-                   "MFR Part Number", "Internal Part Number",
-                   "BOM Qty", "Unit", "Attrition %", "Attrition Rate", "Final Qty"]
+        mfr_col_name = self.mfr_pn_col_var.get()
+        if mfr_col_name == "Auto":
+            mfr_col_name = "MFR P/N"
+            
+        int_col_name = self.int_pn_col_var.get()
+        if int_col_name == "Auto":
+            int_col_name = "Internal P/N"
+            
+        headers = ["#", "Part Type", "Description (original)",
+                   mfr_col_name, int_col_name, "Qty", "Attrition %"]
         ws.append(headers)
         
-        for r in self._visible_rows:
-            raw_pt = r.get("part_type_raw", "")
-            can_pt = r.get("part_type_full", "")
-            if r.get("canonical_type") == "OTHER_SPECIAL" and raw_pt:
-                can_pt = str(raw_pt).strip().title()
+        for idx, r in enumerate(self._visible_rows, start=1):
+            if r.get("canonical_type") == "UNKNOWN":
+                pt_display = "???"
+            elif r.get("canonical_type") == "OTHER_SPECIAL" and r.get("part_type_raw"):
+                pt_display = str(r.get("part_type_raw", "")).strip().title()
+            else:
+                pt_display = r.get("part_type_full", "")
                 
-            qty = float(r.get("qty_bom", 0) or 0)
-            rate = float(r.get("attrition_rate", 0))
-            final_qty = apply_attrition(qty, rate, r.get("unit", "EA"))
+            qty_val = float(r.get("qty_bom", 0) or 0)
+            qty_display = int(qty_val) if qty_val == int(qty_val) else qty_val
             
             ws.append([
-                r["_id"] + 1,
-                raw_pt,
-                can_pt,
+                idx,
+                pt_display,
                 r.get("description", ""),
                 r.get("mpn") or "",
                 r.get("internal_pn") or "",
-                qty,
-                r.get("unit", "EA"),
-                r.get("attrition_pct", "0.0%"),
-                rate,
-                final_qty
+                qty_display,
+                r.get("attrition_pct", "0.0%")
             ])
             
         wb.save(path)
@@ -776,27 +1096,53 @@ class BOMApp(ctk.CTk):
         r_id = int(item_id)
         target_row = next((r for r in self._all_rows if r["_id"] == r_id), None)
         if not target_row: return
+
+        self._destroy_active_cell_editor()
         
-        # Build dropdown
-        cb = ttk.Combobox(self.tree, values=list(FRIENDLY_TYPES.keys()), state="readonly")
+        # Build dropdown with package variants
+        options = _build_friendly_with_packages()
+        cb = SearchableCombobox(self.tree, values=options, state="normal")
+        self._active_cell_editor = cb
         cb.place(x=x, y=y, width=w, height=h)
         
-        # Find current friendly name if possible
+        # Find current friendly name (with package) if possible
+        current_full = target_row.get("part_type_full", "")
         reverse_map = {v: k for k, v in FRIENDLY_TYPES.items()}
         curr_friendly = reverse_map.get(target_row["canonical_type"], "")
-        if curr_friendly:
+        if curr_friendly and current_full:
+            # If current has package like "Resistor [0805]", use it
+            cb.set(current_full)
+        elif curr_friendly:
             cb.set(curr_friendly)
             
         def on_select(e):
             sel = cb.get()
-            cb.destroy()
-            if not sel: return
-            can_type = FRIENDLY_TYPES.get(sel)
-            if not can_type: return
+            if not sel:
+                cb.destroy()
+                return
+            # Parse selection: "Resistor [0805]" -> canon=RESISTOR, pkg=0805
+            import re
+            m = re.match(r"^(.+?)\s*\[(.+?)\]$", sel.strip())
+            if m:
+                friendly, pkg = m.group(1).strip(), m.group(2).strip()
+                can_type = FRIENDLY_TYPES.get(friendly)
+                new_pkg = pkg
+            else:
+                friendly = sel.strip()
+                can_type = FRIENDLY_TYPES.get(friendly)
+                new_pkg = None
+            if not can_type:
+                cb.destroy()
+                return
             
             # Update row
             from attrition_engine import get_attrition_rate
             target_row["canonical_type"] = can_type
+            if new_pkg:
+                # Store package for attrition lookup
+                target_row["_manual_package"] = new_pkg
+            else:
+                target_row.pop("_manual_package", None)
             
             if can_type == "UNKNOWN":
                 target_row["part_type_full"] = "Unknown"
@@ -804,15 +1150,32 @@ class BOMApp(ctk.CTk):
                 target_row["attrition_pct"] = "0.0%"
             else:
                 target_row["part_type_full"] = sel
-                rate = get_attrition_rate(can_type, "-",
+                rate = get_attrition_rate(can_type, new_pkg,
                                           target_row.get("unit", "EA"),
                                           target_row.get("description"))
                 target_row["attrition_rate"] = rate
                 target_row["attrition_pct"] = f"{rate*100:.1f}%"
-                
+
+            self._destroy_active_cell_editor(cb)
             self._render_rows()
             self.lbl_status.configure(text=f"Updated row {r_id+1} to {sel} ({target_row['attrition_pct']})", text_color="#10b981")
             
         cb.bind("<<ComboboxSelected>>", on_select)
-        cb.bind("<FocusOut>", lambda e: cb.destroy())
+        cb.bind("<Return>", on_select)
+        cb.bind("<KP_Enter>", on_select)
+        cb.bind("<Tab>", on_select)
+        cb.bind("<Escape>", lambda e: self._destroy_active_cell_editor(cb))
         cb.focus_set()
+        cb._take_focus()
+
+    def _destroy_active_cell_editor(self, editor=None):
+        active = self._active_cell_editor
+        if editor is not None and active is not editor:
+            return
+        if active is not None:
+            try:
+                if active.winfo_exists():
+                    active.destroy()
+            except Exception:
+                pass
+        self._active_cell_editor = None

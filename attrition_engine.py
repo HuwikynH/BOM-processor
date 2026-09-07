@@ -207,16 +207,18 @@ def analyze_row(
     description: str | None,
     qty: float | None,
     unit: str | None,
+    manual_package: str | None = None,
 ) -> dict:
     """
     Full analysis of a single BOM row.
 
     Parameters
     ----------
-    part_type   : from 'Part Type' column (can be None for CSV-only BOMs)
-    description : from 'Description' column
-    qty         : numeric quantity
-    unit        : unit string (EA, IN, FT, ...)
+    part_type      : from 'Part Type' column (can be None for CSV-only BOMs)
+    description    : from 'Description' column
+    qty            : numeric quantity
+    unit           : unit string (EA, IN, FT, ...)
+    manual_package : optional package override (e.g., from user dropdown selection)
 
     Returns
     -------
@@ -274,8 +276,8 @@ def analyze_row(
         if canonical_type:
             resolved_via = "description_parse"
 
-    # ── Step 2: Detect package from Description ────────────────────────────────
-    package = detect_package(description)
+    # ── Step 2: Detect package from Description (or use manual override) ──────
+    package = manual_package or detect_package(description)
 
     # ── Step 3: Get attrition rate ────────────────────────────────────────────
     rate = get_attrition_rate(canonical_type, package, unit, description)

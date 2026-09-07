@@ -80,7 +80,12 @@ def save_new_version(base_name: str, data: dict, saved_from: str = "") -> str:
     """Write data to a NEW timestamped version file, make it active.
     Returns the new filename."""
     stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H%M%S")
-    fname = f"{os.path.splitext(base_name)[0]}_v{stamp}.json"
+    stem = os.path.splitext(base_name)[0]
+    fname = f"{stem}_v{stamp}.json"
+    counter = 2
+    while os.path.exists(os.path.join(_BASE_DIR, fname)):
+        fname = f"{stem}_v{stamp}_{counter}.json"
+        counter += 1
     payload = dict(data)
     meta = dict(payload.get("_meta", {}))
     if saved_from:
